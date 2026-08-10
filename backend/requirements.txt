@@ -1,0 +1,18 @@
+fastapi==0.118.0
+uvicorn[standard]==0.37.0
+sqlalchemy==2.0.43
+psycopg[binary]==3.2.10
+pydantic[email]==2.11.9
+python-dotenv==1.1.1
+requests==2.32.5
+curl_cffi==0.16.0
+beautifulsoup4==4.14.2
+lxml==6.0.2
+apscheduler==3.11.0
+
+# Fallback de navegador para lojas que montam o preço por JavaScript.
+# Depois de instalar, baixe o navegador:  playwright install chromium
+# Sem esse passo o scraper segue funcionando só com HTTP (o fallback se desliga
+# sozinho). Na Railway, exige Dockerfile com as libs de sistema do Chromium —
+# se preferir não usar lá, basta definir NAVEGADOR_FALLBACK=false.
+playwright==1.62.0

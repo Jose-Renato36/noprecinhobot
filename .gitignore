@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Banco local
+*.db
+*.sqlite3
+
+# Segredos
+.env
+.env.local
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Editores e SO
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
