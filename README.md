@@ -321,7 +321,29 @@ na própria Resend.
 
 ## Deploy na Railway
 
-Três serviços no mesmo projeto, todos apontando para este repositório.
+Há dois caminhos. O primeiro é mais simples e é o recomendado.
+
+### Opção A — um serviço só (Dockerfile)
+
+Crie **um** serviço apontando para este repositório e **não configure Root Directory**. A
+Railway encontra o `Dockerfile` na raiz e usa ele, sem depender de detecção de linguagem.
+Ele compila o painel React e o entrega junto com a API, servidos pela mesma origem.
+
+Adicione o PostgreSQL (`+ New` → `Database` → `PostgreSQL`) e configure:
+
+```
+DATABASE_URL        → referência ao serviço Postgres
+BASE_URL            → https://<dominio-do-servico>
+DEMO_STORE_ENABLED  → false
+NAVEGADOR_FALLBACK  → false
+```
+
+Não é preciso `CORS_ORIGINS` nem `VITE_API_URL`: com uma origem só, o painel chama `/api`
+por caminho relativo e o navegador nem passa pelo CORS.
+
+### Opção B — três serviços
+
+Mais fiel à separação de responsabilidades, e é o desenho descrito na especificação.
 
 > ⚠️ **O passo que faz o build falhar se for esquecido:** em cada serviço, defina o
 > **Root Directory** em *Settings → Source*. A raiz do repositório só contém `backend/` e

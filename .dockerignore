@@ -1,0 +1,23 @@
+# Mantém o contexto de build pequeno e impede que segredos ou artefatos locais
+# entrem na imagem.
+.git
+.gitignore
+README.md
+
+**/node_modules
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+
+# Segredos: as variáveis vêm do painel da Railway, nunca da imagem.
+**/.env
+**/.env.local
+
+# Banco local de desenvolvimento
+**/*.db
+**/*.sqlite3
+
+# O dist é gerado dentro da própria imagem, na etapa do Node.
+frontend/dist
