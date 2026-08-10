@@ -10,9 +10,7 @@ beautifulsoup4==4.14.2
 lxml==6.0.2
 apscheduler==3.11.0
 
-# Fallback de navegador para lojas que montam o preço por JavaScript.
-# Depois de instalar, baixe o navegador:  playwright install chromium
-# Sem esse passo o scraper segue funcionando só com HTTP (o fallback se desliga
-# sozinho). Na Railway, exige Dockerfile com as libs de sistema do Chromium —
-# se preferir não usar lá, basta definir NAVEGADOR_FALLBACK=false.
-playwright==1.62.0
+# O fallback de navegador headless (Playwright) e os testes ficam em
+# requirements-dev.txt: são pesados e não fazem falta em produção, onde o
+# scraper roda só por HTTP. Para desenvolver:
+#     pip install -r requirements.txt -r requirements-dev.txt

@@ -1,0 +1,14 @@
+# Dependências de desenvolvimento — não são instaladas em produção.
+#     pip install -r requirements.txt -r requirements-dev.txt
+
+pytest==8.4.2
+
+# Fallback de navegador para lojas que montam o preço por JavaScript.
+# Depois de instalar, baixe o navegador:  playwright install chromium
+# Sem esse passo o scraper segue funcionando só com HTTP — o fallback se
+# desliga sozinho (ver app/navegador.py).
+#
+# Fica fora de produção de propósito: o wheel tem ~38 MB, o Chromium mais
+# ~150 MB, e a imagem da Railway não traz as libs de sistema que ele exige.
+# Em produção, defina NAVEGADOR_FALLBACK=false.
+playwright==1.62.0

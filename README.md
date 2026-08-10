@@ -17,14 +17,15 @@ Precisa de **Python 3.12+** e **Node.js 18+**.
 ### 1. Backend (API + scraper + agendador)
 
 ```bash
-cd backend && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt && playwright install chromium && uvicorn app.main:app --reload
+cd backend && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt -r requirements-dev.txt && playwright install chromium && uvicorn app.main:app --reload
 ```
 
 Sobe em <http://127.0.0.1:8000> — documentação interativa em <http://127.0.0.1:8000/docs>.
 
-O `playwright install chromium` baixa o navegador usado como último recurso em lojas que
-montam o preço por JavaScript. Se pular esse passo, o scraper funciona igual, só sem essa
-camada — ele se desliga sozinho.
+O `requirements-dev.txt` traz o `pytest` e o Playwright — este último baixa o navegador
+(`playwright install chromium`) usado como último recurso em lojas que montam o preço por
+JavaScript. Se pular esse passo, o scraper funciona igual, só sem essa camada — ele se
+desliga sozinho. Em produção só o `requirements.txt` é instalado.
 
 Sem nenhuma configuração ele já funciona: usa **SQLite** local (`backend/noprecinho.db`) e
 registra os alertas no banco. Para PostgreSQL e e-mail, veja [Configuração](#configuração).
@@ -320,20 +321,35 @@ na própria Resend.
 
 ## Deploy na Railway
 
-Três serviços no mesmo projeto, todos apontando para este repositório:
+Três serviços no mesmo projeto, todos apontando para este repositório.
+
+> ⚠️ **O passo que faz o build falhar se for esquecido:** em cada serviço, defina o
+> **Root Directory** em *Settings → Source*. A raiz do repositório só contém `backend/` e
+> `frontend/`, então sem esse ajuste o builder não identifica linguagem nenhuma e aborta
+> com *"could not determine how to build the app"*. Essa configuração vive no painel da
+> Railway — nenhum arquivo do repositório substitui ela.
 
 **1. PostgreSQL** — adicione pelo painel (`+ New` → `Database` → `PostgreSQL`). A Railway
 cria a variável `DATABASE_URL` automaticamente.
 
 **2. API** — Root Directory `backend`.
-- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (já está no `Procfile`)
+- Build e start já vêm fixados em `backend/railway.json`; a versão do Python, em
+  `backend/.python-version`.
 - Variáveis: referencie o `DATABASE_URL` do Postgres, e defina `BASE_URL` com o domínio
-  público do serviço, `RESEND_API_KEY`, `EMAIL_DESTINO` e `CORS_ORIGINS` com a URL do frontend.
+  público do serviço, `CORS_ORIGINS` com a URL do frontend, `DEMO_STORE_ENABLED=false` e,
+  opcionalmente, `RESEND_API_KEY` e `EMAIL_DESTINO`.
 - As tabelas são criadas no primeiro boot; não há migração para rodar.
 
 **3. Frontend** — Root Directory `frontend`.
-- Build: `npm run build` (detectado automaticamente)
+- Build e start já vêm fixados em `frontend/railway.json`.
 - Variável: `VITE_API_URL` = URL pública da API.
+- O `vite preview` recusa requisições de hosts desconhecidos desde o Vite 5.4.12. O
+  `vite.config.js` libera automaticamente o `RAILWAY_PUBLIC_DOMAIN`, que a Railway injeta
+  sozinha — se você usar domínio próprio, adicione-o em `preview.allowedHosts`.
+
+> **Por que `DEMO_STORE_ENABLED=false` em produção:** a loja-demo expõe
+> `POST /api/demo/reiniciar`, que apaga produtos, histórico e alertas sem pedir
+> autenticação. Em ambiente público isso é um botão de autodestruição aberto.
 
 **Agendador — escolha uma das duas formas:**
 
