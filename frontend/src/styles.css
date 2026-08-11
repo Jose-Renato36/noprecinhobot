@@ -1571,3 +1571,186 @@ input:focus {
   border-color: var(--vermelho);
   color: var(--vermelho);
 }
+
+/* ------------------------------------------------------------------ *
+ * A resposta (substitui a grade de seis indicadores)                  *
+ * ------------------------------------------------------------------ */
+.resposta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-left: 3px solid var(--texto-tenue);
+  border-radius: 0 var(--raio) var(--raio) 0;
+}
+
+.resposta--bom {
+  border-left-color: var(--verde);
+  background: color-mix(in srgb, var(--verde) 5%, var(--superficie));
+}
+
+.resposta__texto h2 {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.resposta--bom .resposta__texto h2 {
+  color: var(--verde-escuro);
+}
+
+.resposta__texto p {
+  margin: 5px 0 0;
+  font-size: 13.5px;
+  color: var(--texto-fraco);
+}
+
+/* ---------------------------------------------------- Gráfico no card */
+.minigrafico {
+  width: 100%;
+  height: 44px;
+  display: block;
+  margin: 12px 0 8px;
+  overflow: visible;
+}
+
+.minigrafico__linha {
+  fill: none;
+  stroke: var(--texto-tenue);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.minigrafico__linha--atingiu {
+  stroke: var(--verde);
+}
+
+.minigrafico__alvo {
+  stroke: var(--texto-tenue);
+  stroke-width: 1;
+  opacity: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+
+.minigrafico__ponta {
+  fill: var(--texto-fraco);
+}
+
+.minigrafico__ponta--atingiu {
+  fill: var(--verde);
+}
+
+.minigrafico__vazio {
+  margin: 12px 0 8px;
+  font-size: 12px;
+  color: var(--texto-tenue);
+}
+
+/* ------------------------------------------------ Card reorganizado */
+.produto__preco-linha {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.produto__preco-linha .preco {
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.produto__alvo-linha {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--texto-fraco);
+}
+
+.produto__falta {
+  color: var(--texto-tenue);
+}
+
+.produto__conquista {
+  color: var(--verde-escuro);
+  font-weight: 700;
+}
+
+.produto__pausa {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ambar);
+}
+
+.produto__rodape {
+  margin: 0 0 12px;
+  font-size: 11.5px;
+  color: var(--texto-tenue);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------ Menu do card */
+.menu {
+  position: relative;
+}
+
+.botao--icone {
+  padding: 9px 12px;
+  line-height: 1;
+}
+
+.menu__lista {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  min-width: 176px;
+  padding: 5px;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  box-shadow: var(--sombra-alta);
+  display: flex;
+  flex-direction: column;
+}
+
+.menu__lista button {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  padding: 8px 11px;
+  border-radius: 5px;
+  color: var(--texto);
+  cursor: pointer;
+}
+
+.menu__lista button:hover {
+  background: var(--superficie-2);
+}
+
+.menu__lista .menu__perigo {
+  color: var(--vermelho);
+}
+
+.campo__dica {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--texto-tenue);
+}
+
+.formulario__buscando {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--texto-fraco);
+}

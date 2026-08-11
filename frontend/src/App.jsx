@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, sessao } from './api'
-import { ROTULOS_STATUS } from './utils'
 import CardProduto from './components/CardProduto'
 import Etiqueta from './components/Etiqueta'
 import FormularioProduto from './components/FormularioProduto'
@@ -13,17 +12,17 @@ import TelaLogin from './components/TelaLogin'
 import Toasts from './components/Toasts'
 
 const ABAS = [
-  { id: 'painel', rotulo: 'Painel' },
-  { id: 'alertas', rotulo: 'Alertas' },
+  { id: 'painel', rotulo: 'Minha lista' },
+  { id: 'alertas', rotulo: 'Avisos' },
   { id: 'demo', rotulo: 'Loja de teste' },
+  { id: 'coletor', rotulo: 'Coletor' },
 ]
 
 const FILTROS = [
   { id: '', rotulo: 'Todos' },
-  { id: 'aguardando', rotulo: ROTULOS_STATUS.aguardando },
-  { id: 'alvo_atingido', rotulo: ROTULOS_STATUS.alvo_atingido },
-  { id: 'pausado', rotulo: ROTULOS_STATUS.pausado },
-  { id: 'erro', rotulo: ROTULOS_STATUS.erro },
+  { id: 'alvo_atingido', rotulo: 'No meu preço' },
+  { id: 'aguardando', rotulo: 'Esperando' },
+  { id: 'pausado', rotulo: 'Pausados' },
 ]
 
 export default function App() {
@@ -151,36 +150,36 @@ export default function App() {
     pausar: (p) =>
       comOcupado(p, async () => {
         await api.pausarProduto(p.id)
-        avisar('info', `Monitoramento de "${p.nome}" pausado.`)
+        avisar('info', `Avisos de "${p.nome}" pausados.`)
       }),
     retomar: (p) =>
       comOcupado(p, async () => {
         await api.retomarProduto(p.id)
-        avisar('sucesso', `Monitoramento de "${p.nome}" retomado.`)
+        avisar('sucesso', `Voltei a acompanhar "${p.nome}".`)
       }),
     remover: (p) => {
-      if (!window.confirm(`Remover "${p.nome}"? O histórico e os alertas dele também somem.`)) return
+      if (!window.confirm(`Tirar "${p.nome}" da lista? O histórico de preços dele some junto.`)) return
       return comOcupado(p, async () => {
         await api.removerProduto(p.id)
-        avisar('info', 'Produto removido do monitoramento.')
+        avisar('info', 'Tirei da sua lista.')
       })
     },
     coletar: (p) =>
       comOcupado(p, async () => {
         const resultado = await api.coletarProduto(p.id)
-        if (!resultado.sucesso) return avisar('erro', resultado.erro ?? 'A coleta falhou.')
+        if (!resultado.sucesso) return avisar('erro', 'Não consegui ler o preço nesta loja agora.')
         avisar(
           resultado.alerta_gerado ? 'sucesso' : 'info',
           resultado.alerta_gerado
-            ? `Alvo atingido: ${p.nome} está por R$ ${resultado.preco.toFixed(2)}.`
-            : `Preço coletado: R$ ${resultado.preco.toFixed(2)}.`,
+            ? `Chegou no seu preço: ${p.nome} está por R$ ${resultado.preco.toFixed(2)}.`
+            : `Ainda em R$ ${resultado.preco.toFixed(2)}.`,
         )
       }),
     salvarAlvo: async (id, valor) => {
       try {
         await api.atualizarProduto(id, { preco_alvo: valor })
         await carregar()
-        avisar('sucesso', 'Preço-alvo atualizado.')
+        avisar('sucesso', 'Pronto, anotei o novo preço.')
       } catch (e) {
         avisar('erro', e.message)
       }
@@ -192,10 +191,11 @@ export default function App() {
     try {
       const rodada = await api.executarRodada()
       await carregar()
-      const partes = [`${rodada.sucessos} coleta(s) com sucesso`]
-      if (rodada.falhas) partes.push(`${rodada.falhas} falha(s)`)
-      if (rodada.alertas_gerados) partes.push(`${rodada.alertas_gerados} alerta(s) novo(s)`)
-      avisar(rodada.alertas_gerados ? 'sucesso' : 'info', partes.join(' · '))
+      if (rodada.alertas_gerados) {
+        avisar('sucesso', `${rodada.alertas_gerados} produto(s) chegaram no seu preço!`)
+      } else {
+        avisar('info', `Verifiquei ${rodada.sucessos} produto(s). Nada no seu preço ainda.`)
+      }
     } catch (e) {
       avisar('erro', e.message)
     } finally {
@@ -252,8 +252,7 @@ export default function App() {
       <main className="conteudo">
         {falhaConexao && (
           <div className="banner banner--erro">
-            <strong>Sem conexão com a API.</strong> {falhaConexao} Verifique se o backend está
-            rodando em <code>http://127.0.0.1:8000</code>.
+            <strong>Sem conexão com o servidor.</strong> {falhaConexao}
           </div>
         )}
 
@@ -285,7 +284,7 @@ export default function App() {
                 <input
                   className="filtros__busca"
                   type="search"
-                  placeholder="Buscar pelo nome…"
+                  placeholder="Buscar na minha lista…"
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                 />
@@ -297,7 +296,7 @@ export default function App() {
                 <p className="vazio">
                   {filtro || busca
                     ? 'Nenhum produto com esse filtro.'
-                    : 'Nenhum produto monitorado ainda. Cadastre o primeiro usando o formulário acima — ou pegue um link na aba "Loja de teste".'}
+                    : 'Cole o link de algo que você quer comprar e eu aviso quando baixar.'}
                 </p>
               ) : (
                 <div className="produtos">
@@ -318,7 +317,6 @@ export default function App() {
               )}
             </section>
 
-            <SaudeLojas lojas={lojas} />
           </>
         )}
 
@@ -342,6 +340,8 @@ export default function App() {
         )}
 
         {aba === 'demo' && <LojaDemo avisar={avisar} aoMudar={carregar} />}
+
+        {aba === 'coletor' && <SaudeLojas lojas={lojas} resumo={resumo} />}
       </main>
 
       <footer className="rodape">

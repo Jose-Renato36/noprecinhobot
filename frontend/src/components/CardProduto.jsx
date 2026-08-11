@@ -1,13 +1,14 @@
-import { useState } from 'react'
-import {
-  brl,
-  dataHora,
-  nivelConfianca,
-  tempoRelativo,
-  ROTULOS_FONTE,
-  ROTULOS_STATUS,
-} from '../utils'
+import { useEffect, useRef, useState } from 'react'
+import { brl, tempoRelativo } from '../utils'
+import MiniGrafico from './MiniGrafico'
 
+// O card mostra o que quem compra quer saber: quanto custa, quanto você queria
+// pagar, como vem variando e onde comprar.
+//
+// O que saiu daqui: fonte do preço, confiança do scraper, seletor CSS aprendido,
+// perfil HTTP, contagem de coletas, maior preço. Nada disso significa algo para
+// quem só quer um monitor mais barato — é diagnóstico do coletor, e agora vive
+// na aba "Coletor", onde é útil sem atrapalhar.
 export default function CardProduto({
   produto,
   aoPausar,
@@ -20,13 +21,24 @@ export default function CardProduto({
 }) {
   const [editando, setEditando] = useState(false)
   const [novoAlvo, setNovoAlvo] = useState(produto.preco_alvo)
+  const [menuAberto, setMenuAberto] = useState(false)
+  const menuRef = useRef(null)
 
   const pausado = produto.status === 'pausado'
   const atingido = produto.status === 'alvo_atingido'
   const comErro = produto.status === 'erro'
   const variacao = produto.variacao_percentual
   const distancia = produto.distancia_do_alvo
-  const nivel = nivelConfianca(produto.confianca)
+
+  // Menu aberto precisa fechar ao clicar fora, senão fica preso na tela.
+  useEffect(() => {
+    if (!menuAberto) return
+    function aoClicarFora(evento) {
+      if (menuRef.current && !menuRef.current.contains(evento.target)) setMenuAberto(false)
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [menuAberto])
 
   async function salvarAlvo(evento) {
     evento.preventDefault()
@@ -37,7 +49,9 @@ export default function CardProduto({
   }
 
   return (
-    <article className={`produto ${atingido ? 'produto--atingido' : ''} ${pausado ? 'produto--pausado' : ''}`}>
+    <article
+      className={`produto ${atingido ? 'produto--atingido' : ''} ${pausado ? 'produto--pausado' : ''}`}
+    >
       <div className="produto__foto">
         {produto.imagem_url ? (
           <img src={produto.imagem_url} alt="" loading="lazy" />
@@ -47,122 +61,96 @@ export default function CardProduto({
       </div>
 
       <div className="produto__corpo">
-        <div className="produto__cabecalho">
-          <span className={`etiqueta etiqueta--${produto.status}`}>
-            {ROTULOS_STATUS[produto.status] ?? produto.status}
-          </span>
-          {produto.loja && <span className="produto__loja">{produto.loja}</span>}
-          {produto.fonte_preco && (
-            <span
-              className={`fonte fonte--${nivel ?? 'media'}`}
-              title={
-                `Preço obtido via ${ROTULOS_FONTE[produto.fonte_preco] ?? produto.fonte_preco}` +
-                (produto.confianca !== null && produto.confianca !== undefined
-                  ? ` · confiança ${Math.round(produto.confianca * 100)}%`
-                  : '') +
-                (produto.perfil_http ? ` · navegador emulado: ${produto.perfil_http}` : '') +
-                (produto.seletor_preco ? `\nSeletor aprendido: ${produto.seletor_preco}` : '')
-              }
-            >
-              {ROTULOS_FONTE[produto.fonte_preco] ?? produto.fonte_preco}
-              {produto.confianca !== null && produto.confianca !== undefined && (
-                <b> {Math.round(produto.confianca * 100)}%</b>
-              )}
-            </span>
-          )}
-        </div>
-
         <h3 title={produto.nome}>
           <a href={produto.url} target="_blank" rel="noreferrer noopener">
             {produto.nome}
           </a>
         </h3>
+        <p className="produto__loja">
+          {produto.loja ?? 'Loja'}
+          {pausado && <span className="produto__pausa">pausado</span>}
+        </p>
 
-        <div className="produto__precos">
-          <div>
-            <span className="rotulo">Preço atual</span>
-            <strong className={atingido ? 'preco preco--bom' : 'preco'}>
-              {brl(produto.preco_atual)}
-            </strong>
-            {variacao !== null && variacao !== undefined && (
-              <span className={`variacao ${variacao <= 0 ? 'variacao--queda' : 'variacao--alta'}`}>
-                {variacao <= 0 ? '▼' : '▲'} {Math.abs(variacao).toFixed(1)}%
-              </span>
-            )}
-          </div>
-
-          <div>
-            <span className="rotulo">Preço-alvo</span>
-            {editando ? (
-              <form className="editar-alvo" onSubmit={salvarAlvo}>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={novoAlvo}
-                  onChange={(e) => setNovoAlvo(e.target.value)}
-                  autoFocus
-                />
-                <button type="submit" className="botao botao--mini botao--primario">
-                  ok
-                </button>
-                <button
-                  type="button"
-                  className="botao botao--mini"
-                  onClick={() => {
-                    setNovoAlvo(produto.preco_alvo)
-                    setEditando(false)
-                  }}
-                >
-                  ×
-                </button>
-              </form>
-            ) : (
-              <button className="alvo-editavel" onClick={() => setEditando(true)} title="Alterar preço-alvo">
-                {brl(produto.preco_alvo)}
-              </button>
-            )}
-          </div>
+        <div className="produto__preco-linha">
+          <strong className={atingido ? 'preco preco--bom' : 'preco'}>
+            {brl(produto.preco_atual)}
+          </strong>
+          {variacao !== null && variacao !== undefined && Math.abs(variacao) >= 0.1 && (
+            <span className={`variacao ${variacao <= 0 ? 'variacao--queda' : 'variacao--alta'}`}>
+              {variacao <= 0 ? '▼' : '▲'} {Math.abs(variacao).toFixed(1)}%
+            </span>
+          )}
         </div>
 
-        {!atingido && distancia !== null && distancia !== undefined && (
-          <p className="produto__distancia">
-            Falta cair <strong>{brl(distancia)}</strong> para atingir o alvo.
-          </p>
-        )}
-        {atingido && (
-          <p className="produto__distancia produto__distancia--bom">
-            Alvo atingido — {brl(Math.abs(distancia ?? 0))} abaixo do seu preço.
-          </p>
-        )}
-        {comErro && produto.ultimo_erro && (
-          <p className="produto__erro" title={produto.ultimo_erro}>
-            {produto.ultimo_erro}
-          </p>
-        )}
+        <p className="produto__alvo-linha">
+          {atingido ? (
+            <strong className="produto__conquista">
+              Chegou no seu preço — {brl(Math.abs(distancia ?? 0))} abaixo
+            </strong>
+          ) : editando ? (
+            <form className="editar-alvo" onSubmit={salvarAlvo}>
+              <span>Quero por</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={novoAlvo}
+                onChange={(e) => setNovoAlvo(e.target.value)}
+                autoFocus
+              />
+              <button type="submit" className="botao botao--mini botao--primario">
+                ok
+              </button>
+              <button
+                type="button"
+                className="botao botao--mini"
+                onClick={() => {
+                  setNovoAlvo(produto.preco_alvo)
+                  setEditando(false)
+                }}
+              >
+                ×
+              </button>
+            </form>
+          ) : (
+            <>
+              Você quer por{' '}
+              <button
+                className="alvo-editavel"
+                onClick={() => setEditando(true)}
+                title="Alterar o preço que você quer pagar"
+              >
+                {brl(produto.preco_alvo)}
+              </button>
+              {distancia !== null && distancia !== undefined && (
+                <span className="produto__falta"> · falta cair {brl(distancia)}</span>
+              )}
+            </>
+          )}
+        </p>
 
-        <dl className="produto__meta">
-          <div>
-            <dt>Coletas</dt>
-            <dd>{produto.total_coletas}</dd>
-          </div>
-          <div>
-            <dt>Menor preço</dt>
-            <dd>{brl(produto.menor_preco)}</dd>
-          </div>
-          <div>
-            <dt>Maior preço</dt>
-            <dd>{brl(produto.maior_preco)}</dd>
-          </div>
-          <div>
-            <dt>Última coleta</dt>
-            <dd title={dataHora(produto.ultima_coleta_em)}>
-              {tempoRelativo(produto.ultima_coleta_em)}
-            </dd>
-          </div>
-        </dl>
+        <MiniGrafico serie={produto.serie} alvo={produto.preco_alvo} />
+
+        <p className="produto__rodape">
+          {produto.serie?.length > 1 && <>menor visto {brl(produto.menor_preco)} · </>}
+          verificado {tempoRelativo(produto.ultima_coleta_em)}
+        </p>
+
+        {comErro && (
+          <p className="produto__erro">
+            Não consegui ler o preço nesta loja na última tentativa.
+          </p>
+        )}
 
         <div className="produto__acoes">
+          <a
+            className="botao botao--primario"
+            href={produto.url}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Ver na loja
+          </a>
           <button
             className="botao botao--suave"
             onClick={() => aoAbrirHistorico(produto)}
@@ -170,23 +158,50 @@ export default function CardProduto({
           >
             Histórico
           </button>
-          <button className="botao botao--suave" onClick={() => aoColetar(produto)} disabled={ocupado}>
-            {ocupado ? '…' : 'Coletar'}
-          </button>
-          <button
-            className="botao botao--suave"
-            onClick={() => (pausado ? aoRetomar(produto) : aoPausar(produto))}
-            disabled={ocupado}
-          >
-            {pausado ? 'Retomar' : 'Pausar'}
-          </button>
-          <button
-            className="botao botao--perigo"
-            onClick={() => aoRemover(produto)}
-            disabled={ocupado}
-          >
-            Remover
-          </button>
+
+          <div className="menu" ref={menuRef}>
+            <button
+              className="botao botao--suave botao--icone"
+              onClick={() => setMenuAberto((v) => !v)}
+              disabled={ocupado}
+              aria-label="Mais opções"
+              aria-expanded={menuAberto}
+            >
+              ⋯
+            </button>
+            {menuAberto && (
+              <div className="menu__lista" role="menu">
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuAberto(false)
+                    aoColetar(produto)
+                  }}
+                >
+                  Verificar agora
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuAberto(false)
+                    pausado ? aoRetomar(produto) : aoPausar(produto)
+                  }}
+                >
+                  {pausado ? 'Retomar avisos' : 'Pausar avisos'}
+                </button>
+                <button
+                  role="menuitem"
+                  className="menu__perigo"
+                  onClick={() => {
+                    setMenuAberto(false)
+                    aoRemover(produto)
+                  }}
+                >
+                  Tirar da lista
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </article>

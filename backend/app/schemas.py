@@ -109,6 +109,9 @@ class ProdutoResposta(Base):
     total_coletas: int = 0
     menor_preco: Decimal | None = None
     maior_preco: Decimal | None = None
+    # Últimos preços coletados, para o gráfico que fica no próprio card. Vem
+    # junto da lista para o painel não precisar de uma requisição por produto.
+    serie: list[float] = []
 
 
 # --------------------------------------------------------------------------- #

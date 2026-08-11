@@ -106,8 +106,35 @@ def _estatisticas_historico(db: Session, produto_ids: list[int]) -> dict[int, di
     }
 
 
-def _montar_produto(produto: Produto, stats: dict | None) -> schemas.ProdutoResposta:
+def _series_historico(
+    db: Session, produto_ids: list[int], limite: int = 24
+) -> dict[int, list[float]]:
+    """Últimos preços de cada produto, para o gráfico embutido no card.
+
+    Uma consulta só para todos os produtos. Buscar o histórico card a card
+    seria uma consulta por produto — o N+1 clássico, que numa lista de 30 itens
+    já vira 31 idas ao banco.
+    """
+    if not produto_ids:
+        return {}
+
+    linhas = db.execute(
+        select(HistoricoPreco.produto_id, HistoricoPreco.preco)
+        .where(HistoricoPreco.produto_id.in_(produto_ids))
+        .order_by(HistoricoPreco.produto_id, HistoricoPreco.coletado_em)
+    ).all()
+
+    series: dict[int, list[float]] = {}
+    for produto_id, preco in linhas:
+        series.setdefault(produto_id, []).append(float(preco))
+    return {pid: precos[-limite:] for pid, precos in series.items()}
+
+
+def _montar_produto(
+    produto: Produto, stats: dict | None, serie: list[float] | None = None
+) -> schemas.ProdutoResposta:
     resposta = schemas.ProdutoResposta.model_validate(produto)
+    resposta.serie = serie or []
     stats = stats or {}
     resposta.total_coletas = stats.get("total", 0)
     resposta.menor_preco = stats.get("menor")
@@ -343,7 +370,11 @@ def cadastrar_produto(
 
     db.commit()
     db.refresh(produto)
-    return _montar_produto(produto, _estatisticas_historico(db, [produto.id]).get(produto.id))
+    return _montar_produto(
+        produto,
+        _estatisticas_historico(db, [produto.id]).get(produto.id),
+        _series_historico(db, [produto.id]).get(produto.id),
+    )
 
 
 @app.get("/api/produtos", response_model=list[schemas.ProdutoResposta], tags=["produtos"])
@@ -365,8 +396,24 @@ def listar_produtos(
         consulta = consulta.where(Produto.nome.ilike(padrao))
 
     produtos = list(db.scalars(consulta.order_by(Produto.criado_em.desc())))
-    stats = _estatisticas_historico(db, [p.id for p in produtos])
-    return [_montar_produto(p, stats.get(p.id)) for p in produtos]
+    ids = [p.id for p in produtos]
+    stats = _estatisticas_historico(db, ids)
+    series = _series_historico(db, ids)
+
+    montados = [_montar_produto(p, stats.get(p.id), series.get(p.id)) for p in produtos]
+
+    # Ordena por quem está mais perto do preço desejado: o topo da lista passa a
+    # ser o mais acionável, em vez de simplesmente o mais recente. Já atingidos
+    # vêm primeiro; sem preço coletado (erro) vão para o fim.
+    def prioridade(item: schemas.ProdutoResposta) -> tuple[int, float]:
+        if item.status == StatusProduto.ALVO_ATINGIDO:
+            return (0, 0.0)
+        if item.preco_atual is None or item.preco_alvo <= 0:
+            return (2, 0.0)
+        return (1, float(item.preco_atual) / float(item.preco_alvo))
+
+    montados.sort(key=prioridade)
+    return montados
 
 
 @app.get("/api/produtos/{produto_id}", response_model=schemas.ProdutoResposta, tags=["produtos"])
@@ -376,7 +423,11 @@ def obter_produto(
     usuario: Usuario = Depends(usuario_atual),
 ):
     produto = _buscar_produto(db, produto_id, usuario)
-    return _montar_produto(produto, _estatisticas_historico(db, [produto_id]).get(produto_id))
+    return _montar_produto(
+        produto,
+        _estatisticas_historico(db, [produto_id]).get(produto_id),
+        _series_historico(db, [produto_id]).get(produto_id),
+    )
 
 
 @app.patch("/api/produtos/{produto_id}", response_model=schemas.ProdutoResposta, tags=["produtos"])
@@ -402,7 +453,11 @@ def atualizar_produto(
 
     db.commit()
     db.refresh(produto)
-    return _montar_produto(produto, _estatisticas_historico(db, [produto_id]).get(produto_id))
+    return _montar_produto(
+        produto,
+        _estatisticas_historico(db, [produto_id]).get(produto_id),
+        _series_historico(db, [produto_id]).get(produto_id),
+    )
 
 
 @app.post("/api/produtos/{produto_id}/pausar", response_model=schemas.ProdutoResposta, tags=["produtos"])
@@ -415,7 +470,11 @@ def pausar_produto(
     produto.status = StatusProduto.PAUSADO
     db.commit()
     db.refresh(produto)
-    return _montar_produto(produto, _estatisticas_historico(db, [produto_id]).get(produto_id))
+    return _montar_produto(
+        produto,
+        _estatisticas_historico(db, [produto_id]).get(produto_id),
+        _series_historico(db, [produto_id]).get(produto_id),
+    )
 
 
 @app.post("/api/produtos/{produto_id}/retomar", response_model=schemas.ProdutoResposta, tags=["produtos"])
@@ -433,7 +492,11 @@ def retomar_produto(
         produto.status = StatusProduto.AGUARDANDO
     db.commit()
     db.refresh(produto)
-    return _montar_produto(produto, _estatisticas_historico(db, [produto_id]).get(produto_id))
+    return _montar_produto(
+        produto,
+        _estatisticas_historico(db, [produto_id]).get(produto_id),
+        _series_historico(db, [produto_id]).get(produto_id),
+    )
 
 
 @app.delete("/api/produtos/{produto_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["produtos"])

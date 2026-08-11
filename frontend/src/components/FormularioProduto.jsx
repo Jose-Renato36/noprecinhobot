@@ -1,19 +1,26 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../api'
-import { brl, ROTULOS_FONTE } from '../utils'
+import { brl } from '../utils'
 
-/**
- * Cadastro de produto monitorado: o usuário informa a URL e o preço-alvo.
- * O botão "testar" chama /api/previa, que roda o scraper sem gravar nada —
- * assim dá para conferir se o link é válido antes de cadastrar.
- */
+// Cadastro em um passo.
+//
+// Antes o fluxo era: colar a URL, clicar em "Testar link", esperar, preencher o
+// preço e só então cadastrar. Pedir que o usuário "teste" o link é pedir que ele
+// faça o QA do scraper — se o link não serve, quem tem que descobrir é o
+// sistema, não a pessoa.
+//
+// Agora colar já busca o produto e sugere um preço 10% abaixo do atual. Resta
+// um ajuste opcional e um botão.
 export default function FormularioProduto({ aoCadastrar, avisar }) {
   const [url, setUrl] = useState('')
   const [precoAlvo, setPrecoAlvo] = useState('')
   const [previa, setPrevia] = useState(null)
-  const [testando, setTestando] = useState(false)
+  const [buscando, setBuscando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState(null)
+
+  // Evita que uma busca lenta e antiga sobrescreva o resultado de uma mais nova.
+  const buscaAtual = useRef(0)
 
   function limpar() {
     setUrl('')
@@ -22,25 +29,23 @@ export default function FormularioProduto({ aoCadastrar, avisar }) {
     setErro(null)
   }
 
-  async function testarUrl() {
-    if (!url.trim()) {
-      setErro('Cole a URL do produto primeiro.')
-      return
-    }
-    setTestando(true)
+  async function buscarProduto(endereco) {
+    const limpo = endereco.trim()
+    if (!/^https?:\/\/\S+\.\S+/i.test(limpo)) return
+
+    const minhaBusca = ++buscaAtual.current
+    setBuscando(true)
     setErro(null)
     setPrevia(null)
     try {
-      const resultado = await api.previa(url.trim())
+      const resultado = await api.previa(limpo)
+      if (minhaBusca !== buscaAtual.current) return
       setPrevia(resultado)
-      // Sugere um alvo 10% abaixo do preço encontrado, se ainda não houver um.
-      if (!precoAlvo && resultado.preco) {
-        setPrecoAlvo((Number(resultado.preco) * 0.9).toFixed(2))
-      }
+      if (resultado.preco) setPrecoAlvo((Number(resultado.preco) * 0.9).toFixed(2))
     } catch (e) {
-      setErro(e.message)
+      if (minhaBusca === buscaAtual.current) setErro(e.message)
     } finally {
-      setTestando(false)
+      if (minhaBusca === buscaAtual.current) setBuscando(false)
     }
   }
 
@@ -49,14 +54,14 @@ export default function FormularioProduto({ aoCadastrar, avisar }) {
     setErro(null)
 
     const alvo = Number(String(precoAlvo).replace(',', '.'))
-    if (!url.trim()) return setErro('Informe a URL do produto.')
-    if (!Number.isFinite(alvo) || alvo <= 0) return setErro('Informe um preço-alvo maior que zero.')
+    if (!url.trim()) return setErro('Cole o link do produto.')
+    if (!Number.isFinite(alvo) || alvo <= 0) return setErro('Informe quanto você quer pagar.')
 
     setSalvando(true)
     try {
       const produto = await api.cadastrarProduto(url.trim(), Number(alvo.toFixed(2)))
       limpar()
-      avisar('sucesso', `"${produto.nome}" entrou no monitoramento.`)
+      avisar('sucesso', `"${produto.nome}" entrou na sua lista.`)
       aoCadastrar()
     } catch (e) {
       setErro(e.message)
@@ -67,83 +72,82 @@ export default function FormularioProduto({ aoCadastrar, avisar }) {
 
   return (
     <section className="cartao formulario">
-      <header className="formulario__topo">
-        <h2>Novo produto</h2>
-      </header>
-
       <form onSubmit={enviar}>
         <div className="campo">
-          <label htmlFor="url">URL do produto</label>
-          <div className="campo__linha">
-            <input
-              id="url"
-              type="url"
-              inputMode="url"
-              placeholder="https://loja.com.br/produto/..."
-              value={url}
-              onChange={(e) => {
-                setUrl(e.target.value)
-                setPrevia(null)
-              }}
-              disabled={salvando}
-            />
-            <button
-              type="button"
-              className="botao botao--suave"
-              onClick={testarUrl}
-              disabled={testando || salvando}
-            >
-              {testando ? 'Testando…' : 'Testar link'}
-            </button>
-          </div>
+          <label htmlFor="url">Cole o link do produto</label>
+          <input
+            id="url"
+            type="url"
+            inputMode="url"
+            placeholder="https://www.kabum.com.br/produto/..."
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value)
+              setPrevia(null)
+            }}
+            // Colar e sair do campo já dispara a busca — sem botão intermediário.
+            onPaste={(e) => {
+              const colado = e.clipboardData.getData('text')
+              setTimeout(() => buscarProduto(colado), 0)
+            }}
+            onBlur={(e) => !previa && buscarProduto(e.target.value)}
+            disabled={salvando}
+          />
         </div>
 
-        <div className="campo">
-          <label htmlFor="alvo">Avisar quando o preço ficar igual ou abaixo de</label>
-          <div className="campo__moeda">
-            <span>R$</span>
-            <input
-              id="alvo"
-              type="number"
-              step="0.01"
-              min="0.01"
-              placeholder="0,00"
-              value={precoAlvo}
-              onChange={(e) => setPrecoAlvo(e.target.value)}
-              disabled={salvando}
-            />
-          </div>
-        </div>
+        {buscando && <p className="formulario__buscando">Procurando o produto…</p>}
 
         {previa && (
-          <div className="previa">
-            {previa.imagem_url && <img src={previa.imagem_url} alt="" />}
-            <div>
-              <strong>{previa.nome}</strong>
-              <span className="previa__preco">{brl(previa.preco)}</span>
-              <span className="previa__loja">
-                {previa.loja} · link válido, pode cadastrar
-              </span>
-              <span className="previa__fonte">
-                Preço lido de <b>{ROTULOS_FONTE[previa.fonte] ?? previa.fonte}</b>
-                {previa.fontes_concordantes > 1 &&
-                  ` · ${previa.fontes_concordantes} fontes concordam`}
-                {` · confiança ${Math.round((previa.confianca ?? 0) * 100)}%`}
-                {previa.perfil && ` · navegador ${previa.perfil}`}
-              </span>
+          <>
+            <div className="previa">
+              {previa.imagem_url && <img src={previa.imagem_url} alt="" />}
+              <div>
+                <strong>{previa.nome}</strong>
+                <span className="previa__preco">{brl(previa.preco)}</span>
+                <span className="previa__loja">{previa.loja}</span>
+              </div>
             </div>
-          </div>
+
+            <div className="campo">
+              <label htmlFor="alvo">Me avise quando custar</label>
+              <div className="campo__moeda">
+                <span>R$</span>
+                <input
+                  id="alvo"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  placeholder="0,00"
+                  value={precoAlvo}
+                  onChange={(e) => setPrecoAlvo(e.target.value)}
+                  disabled={salvando}
+                />
+              </div>
+              <p className="campo__dica">Sugerimos 10% abaixo do preço de agora. Mude à vontade.</p>
+            </div>
+          </>
         )}
 
         {erro && <p className="erro">{erro}</p>}
 
         <div className="formulario__acoes">
-          <button type="submit" className="botao botao--primario" disabled={salvando}>
-            {salvando ? 'Cadastrando…' : 'Começar a monitorar'}
+          <button
+            type="submit"
+            className="botao botao--primario"
+            disabled={salvando || buscando || !previa}
+          >
+            {salvando ? 'Adicionando…' : 'Adicionar à minha lista'}
           </button>
-          <button type="button" className="botao botao--texto" onClick={limpar} disabled={salvando}>
-            Limpar
-          </button>
+          {(url || previa) && (
+            <button
+              type="button"
+              className="botao botao--texto"
+              onClick={limpar}
+              disabled={salvando}
+            >
+              Limpar
+            </button>
+          )}
         </div>
       </form>
     </section>

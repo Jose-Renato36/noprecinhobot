@@ -1,44 +1,67 @@
-import { brl, contagemRegressiva, tempoRelativo } from '../utils'
+import { brl, tempoRelativo } from '../utils'
 
+// A pessoa abre o app com uma pergunta só: "já baixou?".
+//
+// Antes ela recebia seis cartões — Monitorando, Aguardando, Alvo atingido,
+// Alertas novos, Coletas, Queda acumulada — e tinha que procurar a resposta no
+// meio. "Coletas: 24" é um número sobre o funcionamento do coletor, não sobre a
+// compra dela. Aqui a resposta vem primeiro e sozinha; o resto é rodapé.
 export default function ResumoPainel({ resumo, aoColetarTudo, coletando }) {
   if (!resumo) return null
 
-  const cartoes = [
-    { rotulo: 'Monitorando', valor: resumo.total_produtos, dica: 'produtos cadastrados' },
-    { rotulo: 'Aguardando', valor: resumo.aguardando, dica: 'ainda acima do alvo', tom: 'neutro' },
-    { rotulo: 'Alvo atingido', valor: resumo.alvo_atingido, dica: 'prontos para comprar', tom: 'bom' },
-    { rotulo: 'Alertas novos', valor: resumo.alertas_nao_lidos, dica: 'não lidos', tom: resumo.alertas_nao_lidos ? 'destaque' : 'neutro' },
-    { rotulo: 'Coletas', valor: resumo.total_coletas, dica: 'registros no histórico' },
-    { rotulo: 'Queda acumulada', valor: brl(resumo.economia_potencial), dica: 'desde o cadastro', tom: 'bom' },
-  ]
+  const prontos = resumo.alvo_atingido
+  const total = resumo.total_produtos
+
+  let titulo
+  let tom = 'neutro'
+
+  if (total === 0) {
+    titulo = 'Sua lista está vazia'
+  } else if (prontos > 0) {
+    titulo = prontos === 1 ? '1 produto chegou no seu preço' : `${prontos} produtos chegaram no seu preço`
+    tom = 'bom'
+  } else {
+    titulo = 'Nada no seu preço ainda'
+  }
 
   return (
-    <section className="resumo">
-      <div className="resumo__cartoes">
-        {cartoes.map((c) => (
-          <div key={c.rotulo} className={`resumo__cartao resumo__cartao--${c.tom ?? 'neutro'}`}>
-            <span className="resumo__valor">{c.valor}</span>
-            <span className="resumo__rotulo">{c.rotulo}</span>
-            <span className="resumo__dica">{c.dica}</span>
-          </div>
-        ))}
+    <section className={`resposta resposta--${tom}`}>
+      <div className="resposta__texto">
+        <h2>{titulo}</h2>
+        <p>
+          {total === 0 ? (
+            'Cole o link de um produto abaixo para começar a acompanhar.'
+          ) : (
+            <>
+              Acompanhando {total} {total === 1 ? 'produto' : 'produtos'}
+              {resumo.economia_potencial > 0 && (
+                <> · já caiu {brl(resumo.economia_potencial)} desde que você começou</>
+              )}
+              {' · '}
+              {resumo.agendador_ativo
+                ? `verifico sozinho ${intervaloEmPalavras(resumo.intervalo_minutos)}`
+                : 'verificação automática desligada'}
+              {resumo.ultima_coleta_em && <> · última {tempoRelativo(resumo.ultima_coleta_em)}</>}
+            </>
+          )}
+        </p>
       </div>
 
-      <div className="resumo__agendador">
-        <div>
-          <span className={`ponto ${resumo.agendador_ativo ? 'ponto--vivo' : 'ponto--morto'}`} />
-          <strong>Agendador {resumo.agendador_ativo ? 'ativo' : 'desligado'}</strong>
-          <span className="resumo__dica">
-            coleta a cada {resumo.intervalo_minutos} min
-            {resumo.proxima_coleta_em && ` · próxima ${contagemRegressiva(resumo.proxima_coleta_em)}`}
-            {' · última coleta '}
-            {tempoRelativo(resumo.ultima_coleta_em)}
-          </span>
-        </div>
-        <button className="botao botao--primario" onClick={aoColetarTudo} disabled={coletando}>
-          {coletando ? 'Coletando…' : 'Coletar agora'}
+      {total > 0 && (
+        <button className="botao botao--suave" onClick={aoColetarTudo} disabled={coletando}>
+          {coletando ? 'Verificando…' : 'Verificar agora'}
         </button>
-      </div>
+      )}
     </section>
   )
+}
+
+// "coleta a cada 360 min" é como o servidor pensa. Ninguém fala assim.
+function intervaloEmPalavras(minutos) {
+  if (!minutos || minutos < 1) return 'de tempos em tempos'
+  if (minutos < 60) return `a cada ${minutos} minutos`
+  const horas = Math.round(minutos / 60)
+  if (horas < 24) return horas === 1 ? 'de hora em hora' : `a cada ${horas} horas`
+  const dias = Math.round(horas / 24)
+  return dias === 1 ? 'uma vez por dia' : `a cada ${dias} dias`
 }
