@@ -2,6 +2,9 @@
 #     pip install -r requirements.txt -r requirements-dev.txt
 
 pytest==8.4.2
+# O TestClient do Starlette é construído sobre o httpx; sem ele os testes de
+# autenticação e de limite de requisições nem chegam a ser coletados.
+httpx==0.28.1
 
 # Fallback de navegador para lojas que montam o preço por JavaScript.
 # Depois de instalar, baixe o navegador:  playwright install chromium
