@@ -63,6 +63,12 @@ def registrar(c, email, senha="senha-forte-123"):
         json={"nome": email.split("@")[0], "email": email, "senha": senha},
     )
     assert resposta.status_code == 201, resposta.text
+
+    # O TestClient guarda cookies como um navegador. Nos testes que simulam dois
+    # usuários ao mesmo tempo, o cookie do último cadastro venceria o Bearer de
+    # todos — o cookie tem precedência de propósito. Limpar aqui deixa o token
+    # ser a única credencial, que é o que estes testes querem exercitar.
+    c.cookies.clear()
     return resposta.json()["token"]
 
 
@@ -137,6 +143,86 @@ def test_senha_nao_aparece_em_nenhuma_resposta(cliente):
     token = registrar(c, "ana@teste.com")
     corpo = c.get("/api/auth/eu", headers=auth(token)).text
     assert "senha" not in corpo.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Cookie de sessão
+# --------------------------------------------------------------------------- #
+def test_login_grava_cookie_httponly(cliente):
+    """httpOnly é o motivo de existir do cookie: sem ele, um XSS lê o token."""
+    from app.config import config
+
+    c, _ = cliente
+    c.post(
+        "/api/auth/registrar",
+        json={"nome": "Ana", "email": "ana@teste.com", "senha": "senha-forte-123"},
+    )
+    resposta = c.post(
+        "/api/auth/login", json={"email": "ana@teste.com", "senha": "senha-forte-123"}
+    )
+
+    bruto = resposta.headers["set-cookie"]
+    assert config.COOKIE_NOME in bruto
+    assert "httponly" in bruto.lower()
+    assert "samesite=strict" in bruto.lower()
+
+
+def test_cookie_e_de_sessao_por_padrao(cliente):
+    """Sem Max-Age/Expires o navegador descarta o cookie ao fechar."""
+    c, _ = cliente
+    c.post(
+        "/api/auth/registrar",
+        json={"nome": "Ana", "email": "ana@teste.com", "senha": "senha-forte-123"},
+    )
+    bruto = c.post(
+        "/api/auth/login", json={"email": "ana@teste.com", "senha": "senha-forte-123"}
+    ).headers["set-cookie"]
+
+    assert "max-age" not in bruto.lower()
+    assert "expires" not in bruto.lower()
+
+
+def test_cookie_autentica_sem_cabecalho(cliente):
+    """O painel não manda Authorization: quem sustenta a sessão é o cookie."""
+    c, _ = cliente
+    c.post(
+        "/api/auth/registrar",
+        json={"nome": "Ana", "email": "ana@teste.com", "senha": "senha-forte-123"},
+    )
+    # O TestClient guarda os cookies entre chamadas, como um navegador.
+    assert c.get("/api/auth/eu").status_code == 200
+    assert c.get("/api/produtos").status_code == 200
+
+
+def test_sair_derruba_a_sessao(cliente):
+    c, _ = cliente
+    c.post(
+        "/api/auth/registrar",
+        json={"nome": "Ana", "email": "ana@teste.com", "senha": "senha-forte-123"},
+    )
+    assert c.get("/api/auth/eu").status_code == 200
+
+    assert c.post("/api/auth/sair").status_code == 204
+    assert c.get("/api/auth/eu").status_code == 401
+
+
+def test_bearer_continua_valendo_para_clientes_sem_navegador(cliente):
+    """O /docs e o curl não têm como usar cookie httpOnly."""
+    c, _ = cliente
+    token = registrar(c, "ana@teste.com")
+    c.cookies.clear()  # simula um cliente que não guarda cookie
+
+    assert c.get("/api/auth/eu", headers=auth(token)).status_code == 200
+
+
+def test_cookie_tem_precedencia_sobre_bearer_invalido(cliente):
+    """Cookie válido + cabeçalho lixo não pode derrubar a sessão do painel."""
+    c, _ = cliente
+    c.post(
+        "/api/auth/registrar",
+        json={"nome": "Ana", "email": "ana@teste.com", "senha": "senha-forte-123"},
+    )
+    assert c.get("/api/auth/eu", headers=auth("lixo")).status_code == 200
 
 
 # --------------------------------------------------------------------------- #

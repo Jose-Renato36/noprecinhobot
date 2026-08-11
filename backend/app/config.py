@@ -91,7 +91,22 @@ class Config:
 
     # Autenticação
     SECRET_KEY: str = _segredo()
-    JWT_EXPIRA_MINUTOS: int = _int("JWT_EXPIRA_MINUTOS", 60 * 24 * 7)  # 7 dias
+    JWT_EXPIRA_MINUTOS: int = _int("JWT_EXPIRA_MINUTOS", 60 * 12)  # 12 horas
+
+    # O token viaja num cookie httpOnly — invisível ao JavaScript, ao contrário
+    # de localStorage/sessionStorage, que um XSS lê à vontade.
+    COOKIE_NOME: str = os.getenv("COOKIE_NOME", "noprecinho_sessao")
+    # Cookie de sessão: sem data de expiração, o navegador o descarta ao fechar.
+    # Com true, ele persiste por JWT_EXPIRA_MINUTOS.
+    COOKIE_PERSISTENTE: bool = _bool("COOKIE_PERSISTENTE", False)
+    # Secure exige HTTPS; em desenvolvimento (http://127.0.0.1) o navegador
+    # descartaria o cookie. Por isso segue o esquema da BASE_URL.
+    COOKIE_SEGURO: bool = _bool(
+        "COOKIE_SEGURO", (os.getenv("BASE_URL", "")).lower().startswith("https")
+    )
+    # Strict é o mais restritivo e cabe aqui: nenhum e-mail nosso aponta de volta
+    # para o painel, então não há navegação externa legítima para quebrar.
+    COOKIE_SAMESITE: str = os.getenv("COOKIE_SAMESITE", "strict").strip().lower()
     # Com registro fechado, ninguém cria conta pela API: as contas existentes
     # continuam entrando normalmente, mas /api/auth/registrar passa a recusar.
     REGISTRO_ABERTO: bool = _bool("REGISTRO_ABERTO", True)

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, sessao } from '../api'
+import { api } from '../api'
 
 // A mesma tela serve para entrar e para criar conta: são os mesmos campos, menos
 // o nome. Duas telas separadas só duplicariam formulário e validação.
@@ -28,7 +28,8 @@ export default function TelaLogin({ aoEntrar }) {
         ? await api.registrar(nome.trim(), email.trim(), senha)
         : await api.login(email.trim(), senha)
 
-      sessao.guardar(resposta.token)
+      // O token vem no corpo, mas o painel o ignora: quem carrega a sessão é o
+      // cookie httpOnly que o servidor acabou de gravar.
       aoEntrar(resposta.usuario)
     } catch (e) {
       setErro(e.message)

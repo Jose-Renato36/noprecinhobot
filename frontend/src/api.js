@@ -2,7 +2,6 @@
 // Em dev o Vite faz proxy de /api para o FastAPI (ver vite.config.js).
 
 const BASE = import.meta.env.VITE_API_URL ?? ''
-const CHAVE_TOKEN = 'noprecinho.token'
 
 class ApiError extends Error {
   constructor(mensagem, status) {
@@ -12,32 +11,36 @@ class ApiError extends Error {
   }
 }
 
-// O token vive no localStorage para sobreviver ao F5. Quem precisa saber que ele
-// caiu (token expirado, conta removida) se inscreve em `aoExpirar`, e o App usa
-// isso para devolver o usuário à tela de login sem espalhar try/catch por tudo.
+// Não há token guardado aqui de propósito. A sessão vive num cookie httpOnly,
+// que este código não consegue ler nem escrever — é o ponto: um XSS nesta página
+// também não conseguiria. Quem gerencia o cookie é o navegador, e o servidor o
+// apaga em /api/auth/sair.
+//
+// O App se inscreve em `aoExpirar` para voltar à tela de login quando a sessão
+// morre, sem espalhar try/catch por toda parte.
 let aoExpirar = null
 
 export const sessao = {
-  token: () => localStorage.getItem(CHAVE_TOKEN),
-  guardar: (token) => localStorage.setItem(CHAVE_TOKEN, token),
-  limpar: () => localStorage.removeItem(CHAVE_TOKEN),
   aoExpirar: (callback) => {
     aoExpirar = callback
   },
 }
 
-async function pedir(caminho, { metodo = 'GET', corpo, publico = false, ...resto } = {}) {
+async function pedir(
+  caminho,
+  { metodo = 'GET', corpo, publico = false, silencioso = false, ...resto } = {},
+) {
   const cabecalhos = {}
   if (corpo !== undefined) cabecalhos['Content-Type'] = 'application/json'
-
-  const token = sessao.token()
-  if (token && !publico) cabecalhos.Authorization = `Bearer ${token}`
 
   let resposta
   try {
     resposta = await fetch(`${BASE}${caminho}`, {
       method: metodo,
       headers: cabecalhos,
+      // Painel e API são servidos pela mesma origem, então same-origin basta e
+      // é mais restritivo que 'include'.
+      credentials: 'same-origin',
       body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
       ...resto,
     })
@@ -45,11 +48,11 @@ async function pedir(caminho, { metodo = 'GET', corpo, publico = false, ...resto
     throw new ApiError('Não foi possível falar com o servidor. Ele está rodando?', 0)
   }
 
-  // 401 numa rota autenticada significa sessão morta: limpa e avisa o App. As
-  // rotas públicas (login/registro) ficam de fora, senão errar a senha
-  // dispararia um "sua sessão expirou" sem sentido.
-  if (resposta.status === 401 && !publico) {
-    sessao.limpar()
+  // 401 numa rota autenticada significa sessão morta. Ficam de fora as rotas
+  // públicas (errar a senha não é sessão expirada) e as silenciosas — a
+  // checagem de boot leva 401 legítimo de quem nunca entrou, e avisar "sua
+  // sessão expirou" a um visitante novo não faria sentido.
+  if (resposta.status === 401 && !publico && !silencioso) {
     aoExpirar?.()
   }
 
@@ -86,7 +89,11 @@ export const api = {
     pedir('/api/auth/registrar', { metodo: 'POST', corpo: { nome, email, senha }, publico: true }),
   login: (email, senha) =>
     pedir('/api/auth/login', { metodo: 'POST', corpo: { email, senha }, publico: true }),
-  eu: () => pedir('/api/auth/eu'),
+  // Silenciosa: é a checagem de boot, e 401 aqui é o caso normal de quem chega
+  // deslogado, não uma sessão que caiu.
+  eu: () => pedir('/api/auth/eu', { silencioso: true }),
+  // O cookie é httpOnly: só o servidor consegue apagá-lo.
+  sair: () => pedir('/api/auth/sair', { metodo: 'POST', publico: true }),
 
   resumo: () => pedir('/api/resumo'),
   health: () => pedir('/api/health'),

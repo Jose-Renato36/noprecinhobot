@@ -306,7 +306,10 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 | `RESEND_FROM` | `onboarding@resend.dev` | Remetente |
 | `EMAIL_DESTINO` | — | Destinatário (se o usuário não tiver e-mail) |
 | `SECRET_KEY` | aleatória por boot | Assina os tokens. **Defina em produção**, senão todo reinício desloga todo mundo |
-| `JWT_EXPIRA_MINUTOS` | `10080` | Validade do token (7 dias) |
+| `JWT_EXPIRA_MINUTOS` | `720` | Validade do token (12 horas) |
+| `COOKIE_PERSISTENTE` | `false` | `false` = sessão morre ao fechar o navegador |
+| `COOKIE_SEGURO` | segue a `BASE_URL` | Exige HTTPS; ligado sozinho quando a `BASE_URL` é `https` |
+| `COOKIE_SAMESITE` | `strict` | Proteção contra CSRF |
 | `REGISTRO_ABERTO` | `true` | Com `false`, ninguém cria conta nova; as existentes seguem entrando |
 | `RATE_LIMIT_ENABLED` | `true` | Liga as proteções contra abuso |
 | `CONFIAR_PROXIES` | `1` | Proxies confiáveis à frente da API. **Use `0` sem proxy** |
@@ -401,13 +404,16 @@ cria a variável `DATABASE_URL` automaticamente.
 ## Endpoints principais
 
 Com exceção de `/api/health`, das rotas de autenticação e das páginas da loja-demo, tudo
-exige o cabeçalho `Authorization: Bearer <token>`.
+exige sessão. O painel usa o cookie `httpOnly` gravado no login; clientes que não são
+navegador (o `/docs`, curl, scripts) mandam `Authorization: Bearer <token>`, e o token vem
+no corpo da resposta de login justamente para isso.
 
 | Método | Rota | O que faz |
 | --- | --- | --- |
 | `POST` | `/api/auth/registrar` | Cria conta e já devolve o token |
 | `POST` | `/api/auth/login` | Autentica e devolve o token |
-| `GET` | `/api/auth/eu` | Confirma se o token ainda vale |
+| `POST` | `/api/auth/sair` | Apaga o cookie de sessão |
+| `GET` | `/api/auth/eu` | Confirma se a sessão ainda vale |
 | `POST` | `/api/produtos` | Cadastra por URL + preço-alvo (faz a 1ª coleta e valida o link) |
 | `GET` | `/api/produtos` | Lista com filtro por `status` e `busca` |
 | `PATCH` | `/api/produtos/{id}` | Altera preço-alvo ou nome |
@@ -453,6 +459,13 @@ Documentação completa e testável em `/docs`.
   usuário a cadastrar um link já monitorado levar 409. Trocar isso num banco que já existe
   exige `ALTER TABLE`, então há uma migração dedicada (só PostgreSQL; em SQLite de
   desenvolvimento, apagar o `.db` resolve).
+- **Sessão em cookie `httpOnly`, não em `localStorage`.** Os dois armazenamentos do
+  navegador (`localStorage` e `sessionStorage`) são legíveis por JavaScript: um XSS copia
+  o token e o reusa de outro lugar. O cookie `httpOnly` a página não consegue nem ler. O
+  custo normal dessa escolha é ter que tratar CSRF, mas painel e API são servidos pela
+  mesma origem, então `SameSite=Strict` resolve. Sem data de expiração, o cookie morre ao
+  fechar o navegador; o JWT de 12 h é a rede de segurança para quem deixa o navegador
+  aberto por dias.
 - **Duas defesas contra abuso, não uma.** O limite por IP segura quem martela a API; a
   trava por conta segura o ataque distribuído contra *um* e-mail, em que cada tentativa
   vem de um IP diferente e nenhum limite por IP chega a disparar. Uma não substitui a

@@ -78,8 +78,15 @@ export default function App() {
     }
   }, [filtro, busca])
 
-  const sair = useCallback(() => {
-    sessao.limpar()
+  const sair = useCallback(async () => {
+    // O cookie é httpOnly, então quem o apaga é o servidor. Se a chamada falhar
+    // (rede fora), a sessão local cai do mesmo jeito — deixar o painel aberto
+    // depois de um "Sair" seria pior que a inconsistência.
+    try {
+      await api.sair()
+    } catch {
+      /* ignorado de propósito */
+    }
     setUsuario(null)
     setProdutos([])
     setAlertas([])
@@ -97,16 +104,13 @@ export default function App() {
     })
   }, [avisar])
 
-  // No boot, confere se o token guardado ainda vale.
+  // No boot, pergunta ao servidor se o cookie de sessão ainda vale. Não dá para
+  // checar isso no cliente: sendo httpOnly, o cookie é invisível aqui.
   useEffect(() => {
-    if (!sessao.token()) {
-      setVerificandoSessao(false)
-      return
-    }
     api
       .eu()
       .then(setUsuario)
-      .catch(() => sessao.limpar())
+      .catch(() => setUsuario(null))
       .finally(() => setVerificandoSessao(false))
   }, [])
 

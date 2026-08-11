@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +16,14 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from . import demo_store, scheduler, schemas
-from .auth import conferir_senha, criar_token, hash_senha, usuario_atual
+from .auth import (
+    apagar_cookie,
+    conferir_senha,
+    criar_token,
+    gravar_cookie,
+    hash_senha,
+    usuario_atual,
+)
 from .config import config
 from .limitador import (
     conferir_trava_de_login,
@@ -150,9 +157,17 @@ def health() -> dict:
 # --------------------------------------------------------------------------- #
 # Autenticação
 # --------------------------------------------------------------------------- #
-def _resposta_token(usuario: Usuario) -> schemas.TokenResposta:
+def _resposta_token(usuario: Usuario, resposta: Response) -> schemas.TokenResposta:
+    """Grava o cookie de sessão e devolve o token também no corpo.
+
+    O painel usa só o cookie e ignora o `token` do corpo — ele existe para
+    clientes que não são navegador (o `/docs`, curl, scripts), que não têm como
+    aproveitar cookie httpOnly.
+    """
+    token = criar_token(usuario)
+    gravar_cookie(resposta, token)
     return schemas.TokenResposta(
-        token=criar_token(usuario),
+        token=token,
         expira_em_minutos=config.JWT_EXPIRA_MINUTOS,
         usuario=schemas.UsuarioResumo.model_validate(usuario),
     )
@@ -165,7 +180,9 @@ def _resposta_token(usuario: Usuario) -> schemas.TokenResposta:
     tags=["auth"],
     dependencies=[Depends(limite_registro)],
 )
-def registrar(dados: schemas.UsuarioCriar, db: Session = Depends(get_db)):
+def registrar(
+    dados: schemas.UsuarioCriar, resposta: Response, db: Session = Depends(get_db)
+):
     """Cria a conta e já devolve o token, para o painel não pedir login em seguida."""
     if not config.REGISTRO_ABERTO:
         raise HTTPException(
@@ -181,7 +198,7 @@ def registrar(dados: schemas.UsuarioCriar, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(usuario)
     logger.info("Conta criada: %s", email)
-    return _resposta_token(usuario)
+    return _resposta_token(usuario, resposta)
 
 
 @app.post(
@@ -190,7 +207,7 @@ def registrar(dados: schemas.UsuarioCriar, db: Session = Depends(get_db)):
     tags=["auth"],
     dependencies=[Depends(limite_login)],
 )
-def login(dados: schemas.LoginPedido, db: Session = Depends(get_db)):
+def login(dados: schemas.LoginPedido, resposta: Response, db: Session = Depends(get_db)):
     email = str(dados.email).strip().lower()
 
     # A trava por conta é conferida antes de tocar no banco: sob ataque, nem faz
@@ -208,12 +225,24 @@ def login(dados: schemas.LoginPedido, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha incorretos.")
 
     trava_de_login.registrar_sucesso(email)
-    return _resposta_token(usuario)
+    return _resposta_token(usuario, resposta)
+
+
+@app.post("/api/auth/sair", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
+def sair(resposta: Response):
+    """Apaga o cookie de sessão.
+
+    Precisa existir no servidor justamente porque o cookie é httpOnly: o painel
+    não consegue removê-lo por conta própria. Não exige autenticação — sair de
+    uma sessão que já morreu não é erro, e pedir token aqui só produziria um 401
+    inútil no caminho mais comum (token expirado).
+    """
+    apagar_cookie(resposta)
 
 
 @app.get("/api/auth/eu", response_model=schemas.UsuarioResumo, tags=["auth"])
 def quem_sou_eu(usuario: Usuario = Depends(usuario_atual)):
-    """O painel chama isto no boot para saber se o token guardado ainda vale."""
+    """O painel chama isto no boot para saber se a sessão do cookie ainda vale."""
     return usuario
 
 

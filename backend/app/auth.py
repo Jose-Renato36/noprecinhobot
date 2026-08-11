@@ -1,11 +1,20 @@
 """Autenticação: hash de senha, emissão de JWT e a dependência que protege as rotas.
 
-O token é um JWT assinado com `SECRET_KEY` e carregado no cabeçalho
-`Authorization: Bearer <token>`. Não há sessão no servidor: qualquer instância da
-API valida o token sozinha, o que mantém o deploy simples.
+O token é um JWT assinado com `SECRET_KEY`. Não há sessão no servidor: qualquer
+instância da API valida o token sozinha, o que mantém o deploy simples.
 
-A autorização de verdade não mora aqui — mora em `usuario_dono`, no main.py. Um
-token válido diz *quem* é o usuário; dizer *a que ele tem direito* é
+Ele chega por duas vias, nesta ordem:
+
+1. **Cookie httpOnly** — é o que o painel usa. Sendo httpOnly, o JavaScript da
+   página não consegue lê-lo; um XSS não tem como copiar o token e reusá-lo
+   depois de outro lugar, que é justamente o que `localStorage` e
+   `sessionStorage` permitiriam (os dois são legíveis por script).
+2. **`Authorization: Bearer`** — para clientes que não são navegador: o `/docs`,
+   curl, scripts. Aceitar o cabeçalho não enfraquece o cookie, porque quem não
+   tem credencial continua não conseguindo emitir token.
+
+A autorização de verdade não mora aqui — mora nas checagens de dono do main.py.
+Um token válido diz *quem* é o usuário; dizer *a que ele tem direito* é
 responsabilidade de cada rota, e é onde mora o risco real (ler ou apagar o
 produto de outra pessoa trocando o id na URL).
 """
@@ -17,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -75,6 +84,33 @@ def criar_token(usuario: Usuario) -> str:
     )
 
 
+def gravar_cookie(resposta: Response, token: str) -> None:
+    """Entrega o token num cookie que o JavaScript da página não enxerga."""
+    resposta.set_cookie(
+        key=config.COOKIE_NOME,
+        value=token,
+        httponly=True,
+        secure=config.COOKIE_SEGURO,
+        samesite=config.COOKIE_SAMESITE,
+        # Sem max_age o navegador trata como cookie de sessão e o descarta ao
+        # fechar. Com COOKIE_PERSISTENTE, dura o mesmo que o token.
+        max_age=config.JWT_EXPIRA_MINUTOS * 60 if config.COOKIE_PERSISTENTE else None,
+        path="/",
+    )
+
+
+def apagar_cookie(resposta: Response) -> None:
+    """Os atributos precisam bater com os da gravação, senão o navegador
+    entende que é outro cookie e mantém o original."""
+    resposta.delete_cookie(
+        key=config.COOKIE_NOME,
+        path="/",
+        httponly=True,
+        secure=config.COOKIE_SEGURO,
+        samesite=config.COOKIE_SAMESITE,
+    )
+
+
 def _nao_autorizado(detalhe: str) -> HTTPException:
     return HTTPException(
         status.HTTP_401_UNAUTHORIZED,
@@ -84,15 +120,21 @@ def _nao_autorizado(detalhe: str) -> HTTPException:
 
 
 def usuario_atual(
+    request: Request,
     credencial: HTTPAuthorizationCredentials | None = Depends(esquema_bearer),
     db: Session = Depends(get_db),
 ) -> Usuario:
     """Dependência obrigatória: resolve o usuário do token ou devolve 401."""
-    if credencial is None:
+    # O cookie tem precedência: é o caminho do navegador, e o único em que o
+    # token não fica exposto a script na página.
+    token = request.cookies.get(config.COOKIE_NOME)
+    if not token and credencial is not None:
+        token = credencial.credentials
+    if not token:
         raise _nao_autorizado("Autenticação necessária.")
 
     try:
-        dados = jwt.decode(credencial.credentials, config.SECRET_KEY, algorithms=[ALGORITMO])
+        dados = jwt.decode(token, config.SECRET_KEY, algorithms=[ALGORITMO])
     except jwt.ExpiredSignatureError:
         raise _nao_autorizado("Sessão expirada. Entre novamente.") from None
     except jwt.PyJWTError:
