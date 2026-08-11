@@ -96,6 +96,25 @@ class Config:
     # continuam entrando normalmente, mas /api/auth/registrar passa a recusar.
     REGISTRO_ABERTO: bool = _bool("REGISTRO_ABERTO", True)
 
+    # Proteção contra abuso
+    RATE_LIMIT_ENABLED: bool = _bool("RATE_LIMIT_ENABLED", True)
+    # Quantos proxies confiáveis existem à frente da API. Na Railway (e em
+    # qualquer PaaS com proxy na borda) é 1. Deixe 0 se a API for exposta direto:
+    # confiar no X-Forwarded-For sem proxy permite forjar o IP e furar o limite.
+    CONFIAR_PROXIES: int = _int("CONFIAR_PROXIES", 1)
+
+    LIMITE_LOGIN: int = _int("LIMITE_LOGIN", 10)
+    LIMITE_LOGIN_JANELA: int = _int("LIMITE_LOGIN_JANELA", 300)  # 5 min
+    LIMITE_REGISTRO: int = _int("LIMITE_REGISTRO", 5)
+    LIMITE_REGISTRO_JANELA: int = _int("LIMITE_REGISTRO_JANELA", 3600)  # 1 h
+    LIMITE_SCRAPING: int = _int("LIMITE_SCRAPING", 20)
+    LIMITE_SCRAPING_JANELA: int = _int("LIMITE_SCRAPING_JANELA", 60)
+
+    # Trava por conta, contra ataque distribuído em que o limite por IP não pega.
+    LOGIN_MAX_FALHAS: int = _int("LOGIN_MAX_FALHAS", 5)
+    LOGIN_BLOQUEIO_SEGUNDOS: int = _int("LOGIN_BLOQUEIO_SEGUNDOS", 60)
+    LOGIN_BLOQUEIO_TETO_SEGUNDOS: int = _int("LOGIN_BLOQUEIO_TETO_SEGUNDOS", 900)  # 15 min
+
     # API
     CORS_ORIGINS: list[str] = [
         o.strip()

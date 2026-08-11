@@ -18,6 +18,13 @@ from sqlalchemy.orm import Session, selectinload
 from . import demo_store, scheduler, schemas
 from .auth import conferir_senha, criar_token, hash_senha, usuario_atual
 from .config import config
+from .limitador import (
+    conferir_trava_de_login,
+    limite_login,
+    limite_registro,
+    limite_scraping,
+    trava_de_login,
+)
 from .database import SessionLocal, criar_tabelas, get_db
 from .models import Alerta, DemoProduto, HistoricoPreco, Produto, StatusProduto, Usuario
 from .monitor import coletar_produto, coletar_todos
@@ -156,6 +163,7 @@ def _resposta_token(usuario: Usuario) -> schemas.TokenResposta:
     response_model=schemas.TokenResposta,
     status_code=status.HTTP_201_CREATED,
     tags=["auth"],
+    dependencies=[Depends(limite_registro)],
 )
 def registrar(dados: schemas.UsuarioCriar, db: Session = Depends(get_db)):
     """Cria a conta e já devolve o token, para o painel não pedir login em seguida."""
@@ -176,16 +184,30 @@ def registrar(dados: schemas.UsuarioCriar, db: Session = Depends(get_db)):
     return _resposta_token(usuario)
 
 
-@app.post("/api/auth/login", response_model=schemas.TokenResposta, tags=["auth"])
+@app.post(
+    "/api/auth/login",
+    response_model=schemas.TokenResposta,
+    tags=["auth"],
+    dependencies=[Depends(limite_login)],
+)
 def login(dados: schemas.LoginPedido, db: Session = Depends(get_db)):
     email = str(dados.email).strip().lower()
+
+    # A trava por conta é conferida antes de tocar no banco: sob ataque, nem faz
+    # sentido gastar consulta e verificação de hash (que é cara de propósito).
+    conferir_trava_de_login(email)
+
     usuario = db.scalar(select(Usuario).where(func.lower(Usuario.email) == email))
 
     # Mesma mensagem para e-mail inexistente e senha errada: distinguir os dois
     # casos revelaria quais e-mails têm conta aqui.
     if usuario is None or not conferir_senha(dados.senha, usuario.senha_hash):
+        # A falha é contada mesmo para e-mail inexistente. Contar só os que
+        # existem faria o tempo de resposta denunciar quais contas são reais.
+        trava_de_login.registrar_falha(email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha incorretos.")
 
+    trava_de_login.registrar_sucesso(email)
     return _resposta_token(usuario)
 
 
@@ -203,6 +225,7 @@ def quem_sou_eu(usuario: Usuario = Depends(usuario_atual)):
     response_model=schemas.ProdutoResposta,
     status_code=status.HTTP_201_CREATED,
     tags=["produtos"],
+    dependencies=[Depends(limite_scraping)],
 )
 def cadastrar_produto(
     dados: schemas.ProdutoCriar,
@@ -389,7 +412,12 @@ def remover_produto(
     db.commit()
 
 
-@app.post("/api/produtos/{produto_id}/coletar", response_model=schemas.ResultadoColetaResposta, tags=["coleta"])
+@app.post(
+    "/api/produtos/{produto_id}/coletar",
+    response_model=schemas.ResultadoColetaResposta,
+    tags=["coleta"],
+    dependencies=[Depends(limite_scraping)],
+)
 def coletar_agora(
     produto_id: int,
     db: Session = Depends(get_db),
@@ -443,7 +471,12 @@ def historico_do_produto(
 # --------------------------------------------------------------------------- #
 # Coleta em lote
 # --------------------------------------------------------------------------- #
-@app.post("/api/coletas/executar", response_model=schemas.RodadaResposta, tags=["coleta"])
+@app.post(
+    "/api/coletas/executar",
+    response_model=schemas.RodadaResposta,
+    tags=["coleta"],
+    dependencies=[Depends(limite_scraping)],
+)
 def executar_rodada(
     incluir_pausados: bool = Query(default=False),
     db: Session = Depends(get_db),
@@ -460,7 +493,12 @@ def executar_rodada(
     return schemas.RodadaResposta(**resumo_rodada.to_dict())
 
 
-@app.post("/api/previa", response_model=schemas.PreviaProduto, tags=["produtos"])
+@app.post(
+    "/api/previa",
+    response_model=schemas.PreviaProduto,
+    tags=["produtos"],
+    dependencies=[Depends(limite_scraping)],
+)
 def prever_produto(
     url: str = Body(..., embed=True), usuario: Usuario = Depends(usuario_atual)
 ):

@@ -308,6 +308,14 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 | `SECRET_KEY` | aleatória por boot | Assina os tokens. **Defina em produção**, senão todo reinício desloga todo mundo |
 | `JWT_EXPIRA_MINUTOS` | `10080` | Validade do token (7 dias) |
 | `REGISTRO_ABERTO` | `true` | Com `false`, ninguém cria conta nova; as existentes seguem entrando |
+| `RATE_LIMIT_ENABLED` | `true` | Liga as proteções contra abuso |
+| `CONFIAR_PROXIES` | `1` | Proxies confiáveis à frente da API. **Use `0` sem proxy** |
+| `LIMITE_LOGIN` · `_JANELA` | `10` · `300` | Tentativas de login por IP a cada 5 min |
+| `LIMITE_REGISTRO` · `_JANELA` | `5` · `3600` | Contas criadas por IP por hora |
+| `LIMITE_SCRAPING` · `_JANELA` | `20` · `60` | Chamadas que disparam o scraper, por IP por minuto |
+| `LOGIN_MAX_FALHAS` | `5` | Senhas erradas antes de trancar a conta |
+| `LOGIN_BLOQUEIO_SEGUNDOS` | `60` | Duração do 1º bloqueio (dobra a cada rodada) |
+| `LOGIN_BLOQUEIO_TETO_SEGUNDOS` | `900` | Teto do bloqueio (15 min) |
 | `BASE_URL` | `http://127.0.0.1:8000` | URL pública da API (usada nos links da loja-demo) |
 | `CORS_ORIGINS` | `localhost:5173` | Origens liberadas para o frontend |
 | `DEMO_STORE_ENABLED` | `true` | Liga a loja fictícia |
@@ -445,6 +453,20 @@ Documentação completa e testável em `/docs`.
   usuário a cadastrar um link já monitorado levar 409. Trocar isso num banco que já existe
   exige `ALTER TABLE`, então há uma migração dedicada (só PostgreSQL; em SQLite de
   desenvolvimento, apagar o `.db` resolve).
+- **Duas defesas contra abuso, não uma.** O limite por IP segura quem martela a API; a
+  trava por conta segura o ataque distribuído contra *um* e-mail, em que cada tentativa
+  vem de um IP diferente e nenhum limite por IP chega a disparar. Uma não substitui a
+  outra.
+- **`CONFIAR_PROXIES` é explícito de propósito.** Atrás de um proxy, todas as requisições
+  chegam com o IP dele: limitar por `request.client.host` colocaria todos os usuários no
+  mesmo balde, e um atacante derrubaria o acesso de todo mundo junto. Já confiar no
+  `X-Forwarded-For` *sem* proxy na frente é pior que não limitar — qualquer um forja o
+  cabeçalho e escapa trocando de "IP" a cada requisição. Não existe padrão seguro para os
+  dois casos, então a topologia é declarada.
+- **Estado do limitador em memória.** Com uma instância, basta, e evita arrastar Redis
+  para o projeto. Escalando para várias, cada uma conta em separado e o limite efetivo
+  vira N vezes o configurado — o caminho então é trocar o miolo de `limitador.py` por um
+  armazenamento compartilhado, sem tocar nas rotas.
 
 ---
 
