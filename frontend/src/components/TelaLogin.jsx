@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api'
+import Etiqueta from './Etiqueta'
 
 // A mesma tela serve para entrar e para criar conta: são os mesmos campos, menos
 // o nome. Duas telas separadas só duplicariam formulário e validação.
@@ -48,11 +49,11 @@ export default function TelaLogin({ aoEntrar }) {
     <div className="login">
       <div className="login__cartao">
         <div className="login__marca">
-          <span className="login__logo">🏷️</span>
+          <Etiqueta className="login__logo" />
           <h1>
             No<span>Precinho</span>Bot
           </h1>
-          <p>Monitoramento automático de preços</p>
+          <p>Você diz o preço. Ele vigia até chegar lá.</p>
         </div>
 
         <form className="login__form" onSubmit={enviar}>
@@ -115,10 +116,7 @@ export default function TelaLogin({ aoEntrar }) {
           </p>
         </form>
 
-        <p className="login__nota">
-          Cada conta enxerga apenas os próprios produtos, o próprio histórico e os próprios
-          alertas. O e-mail cadastrado é o destinatário dos avisos de queda de preço.
-        </p>
+        <p className="login__nota">Cada conta vê apenas os próprios produtos.</p>
       </div>
     </div>
   )

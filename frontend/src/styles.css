@@ -2,51 +2,68 @@
  * NoPrecinhoBot — folha de estilo única (React + CSS, sem framework)  *
  * ------------------------------------------------------------------ */
 
+/* Paleta quente, de feira: creme, terracota e madeira, no lugar do
+   esmeralda-sobre-cinza-azulado que todo painel usa.
+
+   O terracota acumula dois papéis: é a cor da marca e é a cor de "alvo
+   atingido". Num monitor de pechincha isso é coerente — o varejo sinaliza
+   desconto com cor quente, não com verde. O verde convencional de "sucesso"
+   seria a escolha óbvia, e o óbvio é o que faz uma interface parecer gerada.
+
+   Por isso o erro foi para vinho, escuro o bastante para nunca ser confundido
+   com o coral, e o pausado para um ouro apagado que não compete com nada. */
 :root {
-  --fundo: #f4f6fb;
+  --fundo: #fbf6f0;
   --superficie: #ffffff;
-  --superficie-2: #f8fafc;
-  --borda: #e3e8f0;
-  --texto: #0f172a;
-  --texto-fraco: #64748b;
-  --texto-tenue: #94a3b8;
+  --superficie-2: #f6efe6;
+  --borda: #e8dccc;
+  --texto: #241b14;
+  --texto-fraco: #7a6553;
+  --texto-tenue: #a89079;
 
-  --verde: #059669;
-  --verde-claro: #d1fae5;
-  --verde-escuro: #047857;
-  --azul: #2563eb;
-  --ambar: #b45309;
-  --ambar-claro: #fef3c7;
-  --vermelho: #dc2626;
-  --vermelho-claro: #fee2e2;
-  --roxo: #7c3aed;
+  /* Terracota calibrado para contraste, não escolhido no olho: com branco por
+     cima dá 5,2:1 (botão) e sobre o creme do fundo dá 4,9:1 (texto) — os dois
+     acima do mínimo de 4,5:1 da WCAG AA. Um tom só de vermelho mais claro
+     reprovava nos dois usos. */
+  --verde: #c0401a;
+  --verde-claro: #fde5da;
+  --verde-escuro: #93300f;
+  --azul: #1d6f8b;
+  --ambar: #9a6b12;
+  --ambar-claro: #f7e9cc;
+  --vermelho: #8f1d2b;
+  --vermelho-claro: #f8dde0;
+  --roxo: #7a2a55;
 
-  --raio: 14px;
-  --raio-p: 9px;
-  --sombra: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.05);
-  --sombra-alta: 0 12px 32px rgba(15, 23, 42, 0.16);
+  /* Cantos mais secos e sombra mais curta: a versão anterior era toda
+     arredondada e acolchoada, o que achata tudo no mesmo nível visual. */
+  --raio: 10px;
+  --raio-p: 6px;
+  --sombra: 0 1px 2px rgba(36, 27, 20, 0.07), 0 2px 8px rgba(36, 27, 20, 0.04);
+  --sombra-alta: 0 16px 40px rgba(36, 27, 20, 0.22);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --fundo: #0b1120;
-    --superficie: #111a2e;
-    --superficie-2: #16203a;
-    --borda: #26324d;
-    --texto: #e8edf7;
-    --texto-fraco: #97a3bb;
-    --texto-tenue: #6b7894;
+    --fundo: #17110d;
+    --superficie: #211a15;
+    --superficie-2: #2b221b;
+    --borda: #3d3128;
+    --texto: #f4e9dd;
+    --texto-fraco: #b09880;
+    --texto-tenue: #857057;
 
-    --verde: #34d399;
-    --verde-claro: #06342a;
-    --verde-escuro: #10b981;
-    --azul: #60a5fa;
-    --ambar: #fbbf24;
-    --ambar-claro: #3a2a06;
-    --vermelho: #f87171;
-    --vermelho-claro: #3b1214;
-    --sombra: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
-    --sombra-alta: 0 12px 32px rgba(0, 0, 0, 0.55);
+    --verde: #ff7a4d;
+    --verde-claro: #3d1a0e;
+    --verde-escuro: #ff9670;
+    --azul: #4fb3d4;
+    --ambar: #e0a838;
+    --ambar-claro: #3a2c10;
+    --vermelho: #ef6b73;
+    --vermelho-claro: #3a1418;
+    --roxo: #d67ab0;
+    --sombra: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
+    --sombra-alta: 0 16px 40px rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -102,14 +119,21 @@ a {
   gap: 12px;
 }
 
-.topo__logo {
-  font-size: 30px;
-  line-height: 1;
+/* Etiqueta desenhada em SVG, não emoji. Emoji herda o desenho do sistema
+   operacional — muda de forma entre Windows, Android e iPhone, e por isso
+   nunca é identidade. */
+.marca__etiqueta {
+  width: 30px;
+  height: 30px;
+  display: block;
+  color: var(--verde);
+  flex: none;
 }
 
 .topo h1 {
-  font-size: 20px;
-  letter-spacing: -0.02em;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
 }
 
 .topo h1 span {
@@ -117,42 +141,47 @@ a {
 }
 
 .topo p {
-  margin: 1px 0 0;
-  font-size: 12.5px;
-  color: var(--texto-fraco);
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--texto-tenue);
 }
 
+/* Abas sublinhadas em vez do controle segmentado em pílula. A pílula é o
+   padrão de todo dashboard dos últimos anos; o sublinhado ocupa menos e deixa
+   a marcação do ativo mais direta. */
 .abas {
   display: flex;
-  gap: 4px;
-  background: var(--superficie-2);
-  border: 1px solid var(--borda);
-  border-radius: 999px;
-  padding: 4px;
+  gap: 2px;
+  align-self: flex-end;
 }
 
 .abas__item {
   position: relative;
   border: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--texto-fraco);
   font: inherit;
   font-weight: 600;
   font-size: 14px;
-  padding: 7px 18px;
-  border-radius: 999px;
+  padding: 8px 14px 10px;
+  margin-bottom: -15px; /* alinha o sublinhado com a borda do cabeçalho */
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .abas__item:hover {
   color: var(--texto);
+  border-bottom-color: var(--borda);
 }
 
-.abas__item--ativa {
-  background: var(--superficie);
-  color: var(--texto);
-  box-shadow: var(--sombra);
+.abas__item--ativa,
+.abas__item--ativa:hover {
+  color: var(--verde);
+  border-bottom-color: var(--verde);
 }
 
 .abas__selo {
@@ -199,7 +228,27 @@ a {
 
 .secao__topo h2,
 .formulario__topo h2 {
-  font-size: 17px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--texto-fraco);
+}
+
+/* A contagem carrega o dado que o parágrafo explicativo antes descrevia em
+   prosa. Ocupa menos e diz mais. */
+.secao__contagem {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--verde);
+  background: var(--verde-claro);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
 .secao__topo p,
@@ -295,7 +344,7 @@ a {
 
 @media (prefers-color-scheme: dark) {
   .botao--primario {
-    color: #05261d;
+    color: #2b0d03;
   }
 }
 
@@ -363,9 +412,12 @@ a {
 }
 
 .resumo__valor {
-  font-size: 25px;
+  font-size: 28px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
+  /* Numerais de largura fixa: sem isto, o "1" é mais estreito que o "8" e os
+     valores dançam a cada atualização do painel. */
+  font-variant-numeric: tabular-nums;
 }
 
 .resumo__cartao--bom .resumo__valor {
@@ -831,9 +883,10 @@ input:focus {
 
 .preco {
   display: inline-block;
-  font-size: 21px;
+  font-size: 22px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
 }
 
 .preco--bom {
@@ -846,7 +899,7 @@ input:focus {
 
 @media (prefers-color-scheme: dark) {
   .preco--alvo {
-    color: #a78bfa;
+    color: var(--roxo);
   }
 }
 
@@ -1102,10 +1155,10 @@ input:focus {
 
 @media (prefers-color-scheme: dark) {
   .grafico__alvo {
-    stroke: #a78bfa;
+    stroke: var(--roxo);
   }
   .grafico__alvo-texto {
-    fill: #a78bfa;
+    fill: var(--roxo);
   }
 }
 
@@ -1414,15 +1467,18 @@ input:focus {
 }
 
 .login__logo {
-  font-size: 34px;
+  width: 38px;
+  height: 38px;
   display: block;
-  margin-bottom: 6px;
+  margin: 0 auto 10px;
+  color: var(--verde);
 }
 
 .login__marca h1 {
-  font-size: 23px;
+  font-size: 25px;
+  font-weight: 800;
   margin: 0;
-  letter-spacing: -0.4px;
+  letter-spacing: -0.035em;
 }
 
 .login__marca h1 span {
@@ -1430,8 +1486,8 @@ input:focus {
 }
 
 .login__marca p {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: 6px 0 0;
+  font-size: 13.5px;
   color: var(--texto-fraco);
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, sessao } from './api'
 import { ROTULOS_STATUS } from './utils'
 import CardProduto from './components/CardProduto'
+import Etiqueta from './components/Etiqueta'
 import FormularioProduto from './components/FormularioProduto'
 import LojaDemo from './components/LojaDemo'
 import ModalHistorico from './components/ModalHistorico'
@@ -171,7 +172,7 @@ export default function App() {
         avisar(
           resultado.alerta_gerado ? 'sucesso' : 'info',
           resultado.alerta_gerado
-            ? `🎯 Alvo atingido! ${p.nome} está por R$ ${resultado.preco.toFixed(2)}.`
+            ? `Alvo atingido: ${p.nome} está por R$ ${resultado.preco.toFixed(2)}.`
             : `Preço coletado: R$ ${resultado.preco.toFixed(2)}.`,
         )
       }),
@@ -216,12 +217,12 @@ export default function App() {
     <div className="app">
       <header className="topo">
         <div className="topo__marca">
-          <span className="topo__logo">🏷️</span>
+          <Etiqueta />
           <div>
             <h1>
               No<span>Precinho</span>Bot
             </h1>
-            <p>Monitoramento automático de preços</p>
+            <p>Caça-preço</p>
           </div>
         </div>
 
@@ -263,13 +264,10 @@ export default function App() {
 
             <section className="cartao">
               <header className="secao__topo">
-                <div>
-                  <h2>Produtos monitorados</h2>
-                  <p>
-                    Preço atual, preço-alvo e situação de cada item. Você pode pausar ou remover o
-                    monitoramento a qualquer momento.
-                  </p>
-                </div>
+                <h2>
+                  Monitorando
+                  {produtos.length > 0 && <em className="secao__contagem">{produtos.length}</em>}
+                </h2>
               </header>
 
               <div className="filtros">

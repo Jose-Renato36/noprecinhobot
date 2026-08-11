@@ -36,7 +36,7 @@ export default function ResumoPainel({ resumo, aoColetarTudo, coletando }) {
           </span>
         </div>
         <button className="botao botao--primario" onClick={aoColetarTudo} disabled={coletando}>
-          {coletando ? 'Coletando…' : '⚡ Coletar tudo agora'}
+          {coletando ? 'Coletando…' : 'Coletar agora'}
         </button>
       </div>
     </section>

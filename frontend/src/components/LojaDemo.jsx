@@ -69,7 +69,7 @@ export default function LojaDemo({ avisar, aoMudar }) {
           disabled={ocupado}
           onClick={() => acao(() => api.demoPromocao(0.4), 'Promoção de 40% aplicada na loja-demo.')}
         >
-          💥 Derrubar preços 40%
+          Derrubar preços 40%
         </button>
         <button
           className="botao botao--suave"

@@ -12,12 +12,10 @@ export default function PainelAlertas({
   return (
     <section className="cartao">
       <header className="secao__topo">
-        <div>
-          <h2>Alertas de queda de preço</h2>
-          <p>
-            Um alerta nasce quando o preço coletado fica igual ou abaixo do alvo que você definiu.
-          </p>
-        </div>
+        <h2>
+          Alertas
+          {naoLidos > 0 && <em className="secao__contagem">{naoLidos}</em>}
+        </h2>
         {naoLidos > 0 && (
           <button className="botao botao--suave" onClick={aoMarcarTodos}>
             Marcar todos como lidos ({naoLidos})
@@ -43,7 +41,7 @@ export default function PainelAlertas({
                   {brl(alerta.preco_alvo)}
                   {/* Com o envio desligado, "e-mail não enviado" seria ruído
                       passando por defeito — o alerta no painel é o canal. */}
-                  {emailAtivo && (alerta.email_enviado ? ' · ✉ e-mail enviado' : ' · ✉ e-mail falhou')}
+                  {emailAtivo && (alerta.email_enviado ? ' · e-mail enviado' : ' · e-mail falhou')}
                 </p>
               </div>
               <div className="alerta__acoes">

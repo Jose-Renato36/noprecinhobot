@@ -10,13 +10,7 @@ export default function SaudeLojas({ lojas }) {
   return (
     <section className="cartao">
       <header className="secao__topo">
-        <div>
-          <h2>Saúde das lojas</h2>
-          <p>
-            Taxa de sucesso do scraper por loja e de onde ele está tirando o preço. Se uma loja
-            mudar o layout, a queda aparece aqui.
-          </p>
-        </div>
+        <h2>Saúde das lojas</h2>
       </header>
 
       <div className="lojas">

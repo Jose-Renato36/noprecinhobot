@@ -68,10 +68,7 @@ export default function FormularioProduto({ aoCadastrar, avisar }) {
   return (
     <section className="cartao formulario">
       <header className="formulario__topo">
-        <h2>Monitorar um novo produto</h2>
-        <p>
-          Cole o link da página do produto e diga a partir de que preço você quer ser avisado.
-        </p>
+        <h2>Novo produto</h2>
       </header>
 
       <form onSubmit={enviar}>

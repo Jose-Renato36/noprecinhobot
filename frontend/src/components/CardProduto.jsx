@@ -42,7 +42,7 @@ export default function CardProduto({
         {produto.imagem_url ? (
           <img src={produto.imagem_url} alt="" loading="lazy" />
         ) : (
-          <div className="produto__foto-vazia">📦</div>
+          <div className="produto__foto-vazia" aria-hidden />
         )}
       </div>
 
@@ -119,7 +119,7 @@ export default function CardProduto({
               </form>
             ) : (
               <button className="alvo-editavel" onClick={() => setEditando(true)} title="Alterar preço-alvo">
-                {brl(produto.preco_alvo)} <span aria-hidden>✎</span>
+                {brl(produto.preco_alvo)}
               </button>
             )}
           </div>
@@ -132,12 +132,12 @@ export default function CardProduto({
         )}
         {atingido && (
           <p className="produto__distancia produto__distancia--bom">
-            🎯 Alvo atingido — está {brl(Math.abs(distancia ?? 0))} abaixo do que você pediu.
+            Alvo atingido — {brl(Math.abs(distancia ?? 0))} abaixo do seu preço.
           </p>
         )}
         {comErro && produto.ultimo_erro && (
           <p className="produto__erro" title={produto.ultimo_erro}>
-            ⚠ {produto.ultimo_erro}
+            {produto.ultimo_erro}
           </p>
         )}
 
@@ -168,24 +168,24 @@ export default function CardProduto({
             onClick={() => aoAbrirHistorico(produto)}
             disabled={ocupado}
           >
-            📈 Histórico
+            Histórico
           </button>
           <button className="botao botao--suave" onClick={() => aoColetar(produto)} disabled={ocupado}>
-            {ocupado ? '…' : '🔄 Coletar agora'}
+            {ocupado ? '…' : 'Coletar'}
           </button>
           <button
             className="botao botao--suave"
             onClick={() => (pausado ? aoRetomar(produto) : aoPausar(produto))}
             disabled={ocupado}
           >
-            {pausado ? '▶ Retomar' : '⏸ Pausar'}
+            {pausado ? 'Retomar' : 'Pausar'}
           </button>
           <button
             className="botao botao--perigo"
             onClick={() => aoRemover(produto)}
             disabled={ocupado}
           >
-            🗑 Remover
+            Remover
           </button>
         </div>
       </div>
