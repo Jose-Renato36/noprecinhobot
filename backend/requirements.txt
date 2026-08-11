@@ -10,6 +10,10 @@ beautifulsoup4==4.14.2
 lxml==6.0.2
 apscheduler==3.11.0
 
+# Autenticação: hash de senha e token assinado.
+bcrypt==4.2.1
+pyjwt==2.10.1
+
 # O fallback de navegador headless (Playwright) e os testes ficam em
 # requirements-dev.txt: são pesados e não fazem falta em produção, onde o
 # scraper roda só por HTTP. Para desenvolver:

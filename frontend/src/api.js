@@ -2,6 +2,7 @@
 // Em dev o Vite faz proxy de /api para o FastAPI (ver vite.config.js).
 
 const BASE = import.meta.env.VITE_API_URL ?? ''
+const CHAVE_TOKEN = 'noprecinho.token'
 
 class ApiError extends Error {
   constructor(mensagem, status) {
@@ -11,17 +12,45 @@ class ApiError extends Error {
   }
 }
 
-async function pedir(caminho, { metodo = 'GET', corpo, ...resto } = {}) {
+// O token vive no localStorage para sobreviver ao F5. Quem precisa saber que ele
+// caiu (token expirado, conta removida) se inscreve em `aoExpirar`, e o App usa
+// isso para devolver o usuário à tela de login sem espalhar try/catch por tudo.
+let aoExpirar = null
+
+export const sessao = {
+  token: () => localStorage.getItem(CHAVE_TOKEN),
+  guardar: (token) => localStorage.setItem(CHAVE_TOKEN, token),
+  limpar: () => localStorage.removeItem(CHAVE_TOKEN),
+  aoExpirar: (callback) => {
+    aoExpirar = callback
+  },
+}
+
+async function pedir(caminho, { metodo = 'GET', corpo, publico = false, ...resto } = {}) {
+  const cabecalhos = {}
+  if (corpo !== undefined) cabecalhos['Content-Type'] = 'application/json'
+
+  const token = sessao.token()
+  if (token && !publico) cabecalhos.Authorization = `Bearer ${token}`
+
   let resposta
   try {
     resposta = await fetch(`${BASE}${caminho}`, {
       method: metodo,
-      headers: corpo !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers: cabecalhos,
       body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
       ...resto,
     })
   } catch {
     throw new ApiError('Não foi possível falar com o servidor. Ele está rodando?', 0)
+  }
+
+  // 401 numa rota autenticada significa sessão morta: limpa e avisa o App. As
+  // rotas públicas (login/registro) ficam de fora, senão errar a senha
+  // dispararia um "sua sessão expirou" sem sentido.
+  if (resposta.status === 401 && !publico) {
+    sessao.limpar()
+    aoExpirar?.()
   }
 
   if (resposta.status === 204) return null
@@ -53,6 +82,12 @@ function extrairMensagem(dados) {
 }
 
 export const api = {
+  registrar: (nome, email, senha) =>
+    pedir('/api/auth/registrar', { metodo: 'POST', corpo: { nome, email, senha }, publico: true }),
+  login: (email, senha) =>
+    pedir('/api/auth/login', { metodo: 'POST', corpo: { email, senha }, publico: true }),
+  eu: () => pedir('/api/auth/eu'),
+
   resumo: () => pedir('/api/resumo'),
   health: () => pedir('/api/health'),
   saudeLojas: () => pedir('/api/lojas'),

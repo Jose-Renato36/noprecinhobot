@@ -61,6 +61,48 @@ def criar_tabelas() -> None:
 
     Base.metadata.create_all(bind=engine)
     _adicionar_colunas_novas()
+    _migrar_unicidade_de_url()
+
+
+def _migrar_unicidade_de_url() -> None:
+    """Troca a unicidade global de `url` por unicidade de (usuario_id, url).
+
+    Necessário porque o `create_all` não altera tabelas que já existem: um banco
+    criado antes do login continuaria com `uq_produto_url`, e aí o segundo
+    usuário a cadastrar um link já monitorado levaria 409.
+
+    Só roda no PostgreSQL. O SQLite não sabe remover constraint (exigiria
+    recriar a tabela) e, sendo banco descartável de desenvolvimento, apagar o
+    arquivo .db resolve.
+    """
+    from sqlalchemy import inspect, text
+
+    if _e_sqlite:
+        return
+
+    inspetor = inspect(engine)
+    if "produtos" not in set(inspetor.get_table_names()):
+        return
+
+    existentes = {r["name"] for r in inspetor.get_unique_constraints("produtos")}
+
+    try:
+        with engine.begin() as conexao:
+            if "uq_produto_url" in existentes:
+                conexao.execute(text("ALTER TABLE produtos DROP CONSTRAINT uq_produto_url"))
+                logger.info("Restrição uq_produto_url removida.")
+            if "uq_produto_usuario_url" not in existentes:
+                conexao.execute(
+                    text(
+                        "ALTER TABLE produtos ADD CONSTRAINT uq_produto_usuario_url "
+                        "UNIQUE (usuario_id, url)"
+                    )
+                )
+                logger.info("Restrição uq_produto_usuario_url criada.")
+    except Exception:
+        # Um banco em estado inesperado não pode impedir a API de subir; o pior
+        # caso é a unicidade continuar global, que é o comportamento antigo.
+        logger.exception("Não foi possível migrar a unicidade de URL.")
 
 
 def _adicionar_colunas_novas() -> None:

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from './api'
+import { api, sessao } from './api'
 import { ROTULOS_STATUS } from './utils'
 import CardProduto from './components/CardProduto'
 import FormularioProduto from './components/FormularioProduto'
@@ -8,6 +8,7 @@ import ModalHistorico from './components/ModalHistorico'
 import PainelAlertas from './components/PainelAlertas'
 import ResumoPainel from './components/ResumoPainel'
 import SaudeLojas from './components/SaudeLojas'
+import TelaLogin from './components/TelaLogin'
 import Toasts from './components/Toasts'
 
 const ABAS = [
@@ -25,6 +26,11 @@ const FILTROS = [
 ]
 
 export default function App() {
+  const [usuario, setUsuario] = useState(null)
+  // Terceiro estado além de "entrou"/"não entrou": ainda conferindo o token
+  // guardado. Sem ele, quem tem sessão válida vê a tela de login piscar a cada F5.
+  const [verificandoSessao, setVerificandoSessao] = useState(true)
+
   const [aba, setAba] = useState('painel')
   const [produtos, setProdutos] = useState([])
   const [alertas, setAlertas] = useState([])
@@ -72,16 +78,49 @@ export default function App() {
     }
   }, [filtro, busca])
 
+  const sair = useCallback(() => {
+    sessao.limpar()
+    setUsuario(null)
+    setProdutos([])
+    setAlertas([])
+    setResumo(null)
+    setLojas([])
+    setAba('painel')
+  }, [])
+
+  // Token expirado no meio do uso: a camada de API avisa e a sessão cai aqui,
+  // em vez de o painel ficar mostrando erro em toda requisição.
   useEffect(() => {
-    carregar()
-  }, [carregar])
+    sessao.aoExpirar(() => {
+      setUsuario(null)
+      avisar('info', 'Sua sessão expirou. Entre novamente.')
+    })
+  }, [avisar])
+
+  // No boot, confere se o token guardado ainda vale.
+  useEffect(() => {
+    if (!sessao.token()) {
+      setVerificandoSessao(false)
+      return
+    }
+    api
+      .eu()
+      .then(setUsuario)
+      .catch(() => sessao.limpar())
+      .finally(() => setVerificandoSessao(false))
+  }, [])
+
+  useEffect(() => {
+    if (usuario) carregar()
+  }, [usuario, carregar])
 
   // O agendador trabalha em segundo plano; o painel se atualiza sozinho
   // para refletir coletas e alertas que aconteceram sem o usuário pedir.
   useEffect(() => {
+    if (!usuario) return
     const id = setInterval(carregar, 15000)
     return () => clearInterval(id)
-  }, [carregar])
+  }, [usuario, carregar])
 
   function marcarOcupado(id, ocupado) {
     setOcupados((atuais) => {
@@ -161,6 +200,14 @@ export default function App() {
 
   const naoLidos = alertas.filter((a) => !a.lido).length
 
+  if (verificandoSessao) {
+    return <div className="login login--aguardando">Carregando…</div>
+  }
+
+  if (!usuario) {
+    return <TelaLogin aoEntrar={setUsuario} />
+  }
+
   return (
     <div className="app">
       <header className="topo">
@@ -172,6 +219,15 @@ export default function App() {
             </h1>
             <p>Monitoramento automático de preços</p>
           </div>
+        </div>
+
+        <div className="topo__conta">
+          <span className="topo__usuario" title={usuario.email}>
+            {usuario.nome}
+          </span>
+          <button className="topo__sair" onClick={sair}>
+            Sair
+          </button>
         </div>
 
         <nav className="abas">

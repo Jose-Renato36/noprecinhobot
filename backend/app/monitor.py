@@ -217,9 +217,18 @@ def coletar_produto(db: Session, produto: Produto, forcar: bool = False) -> Resu
     )
 
 
-def coletar_todos(db: Session, incluir_pausados: bool = False) -> ResumoRodada:
-    """Rodada completa do scraper — é isto que o agendador/cron dispara."""
+def coletar_todos(
+    db: Session, incluir_pausados: bool = False, usuario_id: int | None = None
+) -> ResumoRodada:
+    """Rodada do scraper — é isto que o agendador/cron dispara.
+
+    `usuario_id` restringe a rodada aos produtos de uma pessoa: é o que o botão
+    "coletar tudo agora" do painel usa. O agendador roda sem ele, cobrindo a base
+    inteira, que é justamente o trabalho automático que ninguém dispara à mão.
+    """
     consulta = select(Produto)
+    if usuario_id is not None:
+        consulta = consulta.where(Produto.usuario_id == usuario_id)
     if not incluir_pausados:
         consulta = consulta.where(Produto.status != StatusProduto.PAUSADO)
 

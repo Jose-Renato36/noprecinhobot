@@ -16,6 +16,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from . import demo_store, scheduler, schemas
+from .auth import conferir_senha, criar_token, hash_senha, usuario_atual
 from .config import config
 from .database import SessionLocal, criar_tabelas, get_db
 from .models import Alerta, DemoProduto, HistoricoPreco, Produto, StatusProduto, Usuario
@@ -27,33 +28,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("noprecinhobot")
 
-EMAIL_USUARIO_PADRAO = "demo@noprecinho.bot"
-
-
-def _garantir_usuario_padrao(db: Session) -> Usuario:
-    """A entidade Usuário é opcional na especificação: sem tela de login, todos os
-    produtos ficam sob um usuário padrão (que também é o destinatário do e-mail)."""
-    usuario = db.scalar(select(Usuario).where(Usuario.email == EMAIL_USUARIO_PADRAO))
-    if usuario is None:
-        usuario = Usuario(nome="Usuário Demo", email=EMAIL_USUARIO_PADRAO)
-        db.add(usuario)
-        db.commit()
-        db.refresh(usuario)
-    return usuario
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     criar_tabelas()
-    db = SessionLocal()
-    try:
-        _garantir_usuario_padrao(db)
-        if config.DEMO_STORE_ENABLED:
+    if config.DEMO_STORE_ENABLED:
+        db = SessionLocal()
+        try:
             novos = demo_store.semear_catalogo(db)
             if novos:
                 logger.info("Loja-demo populada com %d produto(s).", novos)
-    finally:
-        db.close()
+        finally:
+            db.close()
 
     scheduler.iniciar_agendador()
     yield
@@ -127,9 +113,15 @@ def _montar_produto(produto: Produto, stats: dict | None) -> schemas.ProdutoResp
     return resposta
 
 
-def _buscar_produto(db: Session, produto_id: int) -> Produto:
+def _buscar_produto(db: Session, produto_id: int, usuario: Usuario) -> Produto:
+    """Busca o produto **e** confirma que ele pertence a quem pediu.
+
+    Devolve 404 (não 403) quando o produto é de outra pessoa: responder "existe,
+    mas não é seu" já entregaria que aquele id existe, permitindo mapear a base
+    alheia por tentativa. Para quem não é dono, o produto simplesmente não existe.
+    """
     produto = db.get(Produto, produto_id, options=[selectinload(Produto.usuario)])
-    if produto is None:
+    if produto is None or produto.usuario_id != usuario.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Produto não encontrado.")
     return produto
 
@@ -149,6 +141,61 @@ def health() -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Autenticação
+# --------------------------------------------------------------------------- #
+def _resposta_token(usuario: Usuario) -> schemas.TokenResposta:
+    return schemas.TokenResposta(
+        token=criar_token(usuario),
+        expira_em_minutos=config.JWT_EXPIRA_MINUTOS,
+        usuario=schemas.UsuarioResumo.model_validate(usuario),
+    )
+
+
+@app.post(
+    "/api/auth/registrar",
+    response_model=schemas.TokenResposta,
+    status_code=status.HTTP_201_CREATED,
+    tags=["auth"],
+)
+def registrar(dados: schemas.UsuarioCriar, db: Session = Depends(get_db)):
+    """Cria a conta e já devolve o token, para o painel não pedir login em seguida."""
+    if not config.REGISTRO_ABERTO:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "O cadastro de novas contas está fechado."
+        )
+
+    email = str(dados.email).strip().lower()
+    if db.scalar(select(Usuario).where(func.lower(Usuario.email) == email)) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Já existe uma conta com esse e-mail.")
+
+    usuario = Usuario(nome=dados.nome.strip(), email=email, senha_hash=hash_senha(dados.senha))
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    logger.info("Conta criada: %s", email)
+    return _resposta_token(usuario)
+
+
+@app.post("/api/auth/login", response_model=schemas.TokenResposta, tags=["auth"])
+def login(dados: schemas.LoginPedido, db: Session = Depends(get_db)):
+    email = str(dados.email).strip().lower()
+    usuario = db.scalar(select(Usuario).where(func.lower(Usuario.email) == email))
+
+    # Mesma mensagem para e-mail inexistente e senha errada: distinguir os dois
+    # casos revelaria quais e-mails têm conta aqui.
+    if usuario is None or not conferir_senha(dados.senha, usuario.senha_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha incorretos.")
+
+    return _resposta_token(usuario)
+
+
+@app.get("/api/auth/eu", response_model=schemas.UsuarioResumo, tags=["auth"])
+def quem_sou_eu(usuario: Usuario = Depends(usuario_atual)):
+    """O painel chama isto no boot para saber se o token guardado ainda vale."""
+    return usuario
+
+
+# --------------------------------------------------------------------------- #
 # Produtos
 # --------------------------------------------------------------------------- #
 @app.post(
@@ -157,30 +204,31 @@ def health() -> dict:
     status_code=status.HTTP_201_CREATED,
     tags=["produtos"],
 )
-def cadastrar_produto(dados: schemas.ProdutoCriar, db: Session = Depends(get_db)):
+def cadastrar_produto(
+    dados: schemas.ProdutoCriar,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
     """Cadastra um produto a partir da URL.
 
     A primeira coleta acontece aqui: é ela que confirma que o link é válido e
     preenche nome, preço atual e imagem.
     """
     url = str(dados.url)
-    if db.scalar(select(Produto).where(Produto.url == url)) is not None:
+    # A duplicidade é checada dentro da conta: o mesmo link pode ser monitorado
+    # por vários usuários, cada um com o seu preço-alvo.
+    ja_existe = db.scalar(
+        select(Produto).where(Produto.url == url, Produto.usuario_id == usuario.id)
+    )
+    if ja_existe is not None:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "Esse produto já está sendo monitorado."
+            status.HTTP_409_CONFLICT, "Você já está monitorando esse produto."
         )
 
     try:
         raspado = raspar_produto(url)
     except ScraperError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-
-    usuario = (
-        db.get(Usuario, dados.usuario_id)
-        if dados.usuario_id
-        else _garantir_usuario_padrao(db)
-    )
-    if dados.usuario_id and usuario is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado.")
 
     preco = raspado.preco
     assert preco is not None
@@ -200,7 +248,7 @@ def cadastrar_produto(dados: schemas.ProdutoCriar, db: Session = Depends(get_db)
             else StatusProduto.AGUARDANDO
         ),
         ultima_coleta_em=datetime.now(timezone.utc),
-        usuario_id=usuario.id if usuario else None,
+        usuario_id=usuario.id,
         seletor_preco=raspado.seletor,
         fonte_preco=raspado.fonte,
         perfil_http=raspado.perfil,
@@ -215,7 +263,7 @@ def cadastrar_produto(dados: schemas.ProdutoCriar, db: Session = Depends(get_db)
         from .notifier import enviar_alerta_email, formatar_brl
 
         email_enviado = enviar_alerta_email(
-            destinatario=usuario.email if usuario else None,
+            destinatario=usuario.email,
             nome_produto=produto.nome,
             url_produto=produto.url,
             preco_atual=preco,
@@ -243,10 +291,15 @@ def cadastrar_produto(dados: schemas.ProdutoCriar, db: Session = Depends(get_db)
 @app.get("/api/produtos", response_model=list[schemas.ProdutoResposta], tags=["produtos"])
 def listar_produtos(
     db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
     status_filtro: StatusProduto | None = Query(default=None, alias="status"),
     busca: str | None = Query(default=None, max_length=120),
 ):
-    consulta = select(Produto).options(selectinload(Produto.usuario))
+    consulta = (
+        select(Produto)
+        .options(selectinload(Produto.usuario))
+        .where(Produto.usuario_id == usuario.id)
+    )
     if status_filtro is not None:
         consulta = consulta.where(Produto.status == status_filtro)
     if busca:
@@ -259,16 +312,23 @@ def listar_produtos(
 
 
 @app.get("/api/produtos/{produto_id}", response_model=schemas.ProdutoResposta, tags=["produtos"])
-def obter_produto(produto_id: int, db: Session = Depends(get_db)):
-    produto = _buscar_produto(db, produto_id)
+def obter_produto(
+    produto_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    produto = _buscar_produto(db, produto_id, usuario)
     return _montar_produto(produto, _estatisticas_historico(db, [produto_id]).get(produto_id))
 
 
 @app.patch("/api/produtos/{produto_id}", response_model=schemas.ProdutoResposta, tags=["produtos"])
 def atualizar_produto(
-    produto_id: int, dados: schemas.ProdutoAtualizar, db: Session = Depends(get_db)
+    produto_id: int,
+    dados: schemas.ProdutoAtualizar,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
 ):
-    produto = _buscar_produto(db, produto_id)
+    produto = _buscar_produto(db, produto_id, usuario)
 
     if dados.nome is not None:
         produto.nome = dados.nome
@@ -288,8 +348,12 @@ def atualizar_produto(
 
 
 @app.post("/api/produtos/{produto_id}/pausar", response_model=schemas.ProdutoResposta, tags=["produtos"])
-def pausar_produto(produto_id: int, db: Session = Depends(get_db)):
-    produto = _buscar_produto(db, produto_id)
+def pausar_produto(
+    produto_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    produto = _buscar_produto(db, produto_id, usuario)
     produto.status = StatusProduto.PAUSADO
     db.commit()
     db.refresh(produto)
@@ -297,8 +361,12 @@ def pausar_produto(produto_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/produtos/{produto_id}/retomar", response_model=schemas.ProdutoResposta, tags=["produtos"])
-def retomar_produto(produto_id: int, db: Session = Depends(get_db)):
-    produto = _buscar_produto(db, produto_id)
+def retomar_produto(
+    produto_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    produto = _buscar_produto(db, produto_id, usuario)
     if produto.preco_atual is not None and Decimal(str(produto.preco_atual)) <= Decimal(
         str(produto.preco_alvo)
     ):
@@ -311,16 +379,24 @@ def retomar_produto(produto_id: int, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/produtos/{produto_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["produtos"])
-def remover_produto(produto_id: int, db: Session = Depends(get_db)):
-    produto = _buscar_produto(db, produto_id)
+def remover_produto(
+    produto_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    produto = _buscar_produto(db, produto_id, usuario)
     db.delete(produto)  # histórico e alertas caem junto (cascade)
     db.commit()
 
 
 @app.post("/api/produtos/{produto_id}/coletar", response_model=schemas.ResultadoColetaResposta, tags=["coleta"])
-def coletar_agora(produto_id: int, db: Session = Depends(get_db)):
+def coletar_agora(
+    produto_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
     """Coleta manual — o mesmo caminho que o agendador percorre, só que sob demanda."""
-    produto = _buscar_produto(db, produto_id)
+    produto = _buscar_produto(db, produto_id, usuario)
     resultado = coletar_produto(db, produto, forcar=True)
     return schemas.ResultadoColetaResposta(
         produto_id=resultado.produto_id,
@@ -338,8 +414,9 @@ def historico_do_produto(
     produto_id: int,
     limite: int = Query(default=200, ge=1, le=2000),
     db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
 ):
-    produto = _buscar_produto(db, produto_id)
+    produto = _buscar_produto(db, produto_id, usuario)
     pontos = list(
         db.scalars(
             select(HistoricoPreco)
@@ -368,14 +445,25 @@ def historico_do_produto(
 # --------------------------------------------------------------------------- #
 @app.post("/api/coletas/executar", response_model=schemas.RodadaResposta, tags=["coleta"])
 def executar_rodada(
-    incluir_pausados: bool = Query(default=False), db: Session = Depends(get_db)
+    incluir_pausados: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
 ):
-    """Dispara manualmente a rodada que o agendador executaria."""
-    return schemas.RodadaResposta(**coletar_todos(db, incluir_pausados=incluir_pausados).to_dict())
+    """Dispara manualmente a rodada que o agendador executaria.
+
+    Limitada aos produtos de quem chamou — o botão do painel não pode virar um
+    gatilho para raspar a lista inteira de todo mundo.
+    """
+    resumo_rodada = coletar_todos(
+        db, incluir_pausados=incluir_pausados, usuario_id=usuario.id
+    )
+    return schemas.RodadaResposta(**resumo_rodada.to_dict())
 
 
 @app.post("/api/previa", response_model=schemas.PreviaProduto, tags=["produtos"])
-def prever_produto(url: str = Body(..., embed=True)):
+def prever_produto(
+    url: str = Body(..., embed=True), usuario: Usuario = Depends(usuario_atual)
+):
     """Testa uma URL e devolve o que o scraper conseguiu extrair, sem cadastrar nada."""
     try:
         resultado = raspar_produto(url)
@@ -396,13 +484,15 @@ def prever_produto(url: str = Body(..., embed=True)):
 
 
 @app.get("/api/lojas", response_model=list[schemas.SaudeLoja], tags=["painel"])
-def saude_das_lojas(db: Session = Depends(get_db)):
+def saude_das_lojas(
+    db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
+):
     """Taxa de sucesso por loja.
 
     É o alarme de incêndio do scraper: quando uma loja muda o HTML, a taxa dela
     despenca e isso fica visível no painel em vez de passar semanas despercebido.
     """
-    produtos = list(db.scalars(select(Produto)))
+    produtos = list(db.scalars(select(Produto).where(Produto.usuario_id == usuario.id)))
     por_loja: dict[str, list[Produto]] = {}
     for produto in produtos:
         por_loja.setdefault(produto.loja or "Desconhecida", []).append(produto)
@@ -435,19 +525,36 @@ def listar_alertas(
     apenas_nao_lidos: bool = Query(default=False),
     limite: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
 ):
-    consulta = select(Alerta).options(selectinload(Alerta.produto))
+    # O alerta não guarda dono: ele o herda do produto, daí o join.
+    consulta = (
+        select(Alerta)
+        .join(Alerta.produto)
+        .options(selectinload(Alerta.produto))
+        .where(Produto.usuario_id == usuario.id)
+    )
     if apenas_nao_lidos:
         consulta = consulta.where(Alerta.lido.is_(False))
     alertas = list(db.scalars(consulta.order_by(Alerta.criado_em.desc()).limit(limite)))
     return [schemas.AlertaResposta.model_validate(a) for a in alertas]
 
 
-@app.post("/api/alertas/{alerta_id}/lido", response_model=schemas.AlertaResposta, tags=["alertas"])
-def marcar_alerta_lido(alerta_id: int, db: Session = Depends(get_db)):
-    alerta = db.get(Alerta, alerta_id)
-    if alerta is None:
+def _buscar_alerta(db: Session, alerta_id: int, usuario: Usuario) -> Alerta:
+    """Mesma regra do produto: alerta de outra pessoa responde 404, não 403."""
+    alerta = db.get(Alerta, alerta_id, options=[selectinload(Alerta.produto)])
+    if alerta is None or alerta.produto is None or alerta.produto.usuario_id != usuario.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alerta não encontrado.")
+    return alerta
+
+
+@app.post("/api/alertas/{alerta_id}/lido", response_model=schemas.AlertaResposta, tags=["alertas"])
+def marcar_alerta_lido(
+    alerta_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    alerta = _buscar_alerta(db, alerta_id, usuario)
     alerta.lido = True
     db.commit()
     db.refresh(alerta)
@@ -455,20 +562,32 @@ def marcar_alerta_lido(alerta_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/alertas/marcar-todos-lidos", tags=["alertas"])
-def marcar_todos_lidos(db: Session = Depends(get_db)):
+def marcar_todos_lidos(
+    db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
+):
+    # UPDATE ... WHERE id IN (subconsulta) porque nem todo banco aceita JOIN
+    # direto num UPDATE; a subconsulta é o que garante o escopo por dono.
+    meus_alertas = (
+        select(Alerta.id)
+        .join(Alerta.produto)
+        .where(Produto.usuario_id == usuario.id, Alerta.lido.is_(False))
+    )
     total = db.execute(
-        update(Alerta).where(Alerta.lido.is_(False)).values(lido=True)
+        update(Alerta)
+        .where(Alerta.id.in_(meus_alertas.scalar_subquery()))
+        .values(lido=True)
     ).rowcount
     db.commit()
     return {"marcados": total or 0}
 
 
 @app.delete("/api/alertas/{alerta_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["alertas"])
-def remover_alerta(alerta_id: int, db: Session = Depends(get_db)):
-    alerta = db.get(Alerta, alerta_id)
-    if alerta is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Alerta não encontrado.")
-    db.delete(alerta)
+def remover_alerta(
+    alerta_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    db.delete(_buscar_alerta(db, alerta_id, usuario))
     db.commit()
 
 
@@ -476,11 +595,15 @@ def remover_alerta(alerta_id: int, db: Session = Depends(get_db)):
 # Painel
 # --------------------------------------------------------------------------- #
 @app.get("/api/resumo", response_model=schemas.Resumo, tags=["painel"])
-def resumo(db: Session = Depends(get_db)):
+def resumo(db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)):
     por_status = dict(
-        db.execute(select(Produto.status, func.count(Produto.id)).group_by(Produto.status)).all()
+        db.execute(
+            select(Produto.status, func.count(Produto.id))
+            .where(Produto.usuario_id == usuario.id)
+            .group_by(Produto.status)
+        ).all()
     )
-    produtos = list(db.scalars(select(Produto)))
+    produtos = list(db.scalars(select(Produto).where(Produto.usuario_id == usuario.id)))
 
     economia = Decimal("0.00")
     for p in produtos:
@@ -496,10 +619,17 @@ def resumo(db: Session = Depends(get_db)):
         pausados=por_status.get(StatusProduto.PAUSADO, 0),
         com_erro=por_status.get(StatusProduto.ERRO, 0),
         alertas_nao_lidos=db.scalar(
-            select(func.count(Alerta.id)).where(Alerta.lido.is_(False))
+            select(func.count(Alerta.id))
+            .join(Alerta.produto)
+            .where(Produto.usuario_id == usuario.id, Alerta.lido.is_(False))
         )
         or 0,
-        total_coletas=db.scalar(select(func.count(HistoricoPreco.id))) or 0,
+        total_coletas=db.scalar(
+            select(func.count(HistoricoPreco.id))
+            .join(HistoricoPreco.produto)
+            .where(Produto.usuario_id == usuario.id)
+        )
+        or 0,
         economia_potencial=economia.quantize(Decimal("0.01")),
         ultima_coleta_em=db.scalar(select(func.max(Produto.ultima_coleta_em))),
         proxima_coleta_em=scheduler.proxima_execucao(),
@@ -508,25 +638,9 @@ def resumo(db: Session = Depends(get_db)):
     )
 
 
-@app.get("/api/usuarios", response_model=list[schemas.UsuarioResumo], tags=["usuarios"])
-def listar_usuarios(db: Session = Depends(get_db)):
-    return list(db.scalars(select(Usuario).order_by(Usuario.id)))
-
-
-@app.post(
-    "/api/usuarios",
-    response_model=schemas.UsuarioResumo,
-    status_code=status.HTTP_201_CREATED,
-    tags=["usuarios"],
-)
-def criar_usuario(dados: schemas.UsuarioCriar, db: Session = Depends(get_db)):
-    if db.scalar(select(Usuario).where(Usuario.email == str(dados.email))):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Já existe um usuário com esse e-mail.")
-    usuario = Usuario(nome=dados.nome, email=str(dados.email))
-    db.add(usuario)
-    db.commit()
-    db.refresh(usuario)
-    return usuario
+# As rotas /api/usuarios foram removidas: a listagem devolvia o nome e o e-mail
+# de todo mundo para qualquer visitante, e a criação virou /api/auth/registrar,
+# que é a única forma de nascer uma conta (lá a senha é obrigatória).
 
 
 # --------------------------------------------------------------------------- #
@@ -553,7 +667,9 @@ if config.DEMO_STORE_ENABLED:
 
     @app.post("/api/demo/promocao", tags=["loja-demo"])
     def aplicar_promocao(
-        desconto: float = Query(default=0.35, ge=0.05, le=0.9), db: Session = Depends(get_db)
+        desconto: float = Query(default=0.35, ge=0.05, le=0.9),
+        db: Session = Depends(get_db),
+        usuario: Usuario = Depends(usuario_atual),
     ):
         """Derruba os preços da loja-demo para provocar alertas na apresentação."""
         db.execute(update(DemoProduto).values(fator_promocao=round(1 - desconto, 3)))
@@ -561,20 +677,30 @@ if config.DEMO_STORE_ENABLED:
         return {"mensagem": f"Promoção de {int(desconto * 100)}% aplicada na loja-demo."}
 
     @app.post("/api/demo/normalizar", tags=["loja-demo"])
-    def normalizar_precos(db: Session = Depends(get_db)):
+    def normalizar_precos(
+        db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
+    ):
         db.execute(update(DemoProduto).values(fator_promocao=1.0))
         db.commit()
         return {"mensagem": "Preços da loja-demo voltaram ao normal."}
 
     @app.post("/api/demo/reiniciar", tags=["loja-demo"])
-    def reiniciar_dados(db: Session = Depends(get_db)):
-        """Zera os dados de monitoramento (produtos, histórico e alertas)."""
-        db.execute(delete(Alerta))
-        db.execute(delete(HistoricoPreco))
-        db.execute(delete(Produto))
+    def reiniciar_dados(
+        db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
+    ):
+        """Zera o monitoramento **da própria conta**.
+
+        Antes isto era um `DELETE` sem cláusula: um POST sem autenticação apagava
+        os produtos, o histórico e os alertas de todos os usuários. Agora o
+        estrago que alguém consegue fazer se limita à própria conta.
+        """
+        meus = select(Produto.id).where(Produto.usuario_id == usuario.id).scalar_subquery()
+        db.execute(delete(Alerta).where(Alerta.produto_id.in_(meus)))
+        db.execute(delete(HistoricoPreco).where(HistoricoPreco.produto_id.in_(meus)))
+        db.execute(delete(Produto).where(Produto.usuario_id == usuario.id))
         db.execute(update(DemoProduto).values(fator_promocao=1.0))
         db.commit()
-        return {"mensagem": "Monitoramento zerado."}
+        return {"mensagem": "Seu monitoramento foi zerado."}
 
 
 # --------------------------------------------------------------------------- #

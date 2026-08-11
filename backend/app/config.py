@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import secrets
 from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RAIZ_PROJETO = BASE_DIR.parent
@@ -26,6 +30,23 @@ def _int(nome: str, padrao: int) -> int:
         return int(os.getenv(nome, "").strip())
     except ValueError:
         return padrao
+
+
+def _segredo() -> str:
+    """Chave de assinatura dos tokens.
+
+    Sem SECRET_KEY definida, geramos uma aleatória: é seguro por padrão, mas
+    reinicia todas as sessões a cada boot (e, com mais de uma instância, os
+    tokens de uma não valem na outra). Em produção, defina a variável.
+    """
+    valor = os.getenv("SECRET_KEY")
+    if valor and valor.strip():
+        return valor.strip()
+    logger.warning(
+        "SECRET_KEY não definida — usando uma chave aleatória. Os logins serão "
+        "perdidos a cada reinício. Defina SECRET_KEY em produção."
+    )
+    return secrets.token_urlsafe(48)
 
 
 def _normalizar_database_url(url: str) -> str:
@@ -67,6 +88,13 @@ class Config:
     RESEND_API_KEY: str | None = os.getenv("RESEND_API_KEY") or None
     RESEND_FROM: str = os.getenv("RESEND_FROM", "NoPrecinhoBot <onboarding@resend.dev>")
     EMAIL_DESTINO: str | None = os.getenv("EMAIL_DESTINO") or None
+
+    # Autenticação
+    SECRET_KEY: str = _segredo()
+    JWT_EXPIRA_MINUTOS: int = _int("JWT_EXPIRA_MINUTOS", 60 * 24 * 7)  # 7 dias
+    # Com registro fechado, ninguém cria conta pela API: as contas existentes
+    # continuam entrando normalmente, mas /api/auth/registrar passa a recusar.
+    REGISTRO_ABERTO: bool = _bool("REGISTRO_ABERTO", True)
 
     # API
     CORS_ORIGINS: list[str] = [

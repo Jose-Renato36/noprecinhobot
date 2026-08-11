@@ -305,6 +305,9 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 | `RESEND_API_KEY` | — | Chave da Resend. **Sem ela o alerta é só registrado no banco** |
 | `RESEND_FROM` | `onboarding@resend.dev` | Remetente |
 | `EMAIL_DESTINO` | — | Destinatário (se o usuário não tiver e-mail) |
+| `SECRET_KEY` | aleatória por boot | Assina os tokens. **Defina em produção**, senão todo reinício desloga todo mundo |
+| `JWT_EXPIRA_MINUTOS` | `10080` | Validade do token (7 dias) |
+| `REGISTRO_ABERTO` | `true` | Com `false`, ninguém cria conta nova; as existentes seguem entrando |
 | `BASE_URL` | `http://127.0.0.1:8000` | URL pública da API (usada nos links da loja-demo) |
 | `CORS_ORIGINS` | `localhost:5173` | Origens liberadas para o frontend |
 | `DEMO_STORE_ENABLED` | `true` | Liga a loja fictícia |
@@ -389,8 +392,14 @@ cria a variável `DATABASE_URL` automaticamente.
 
 ## Endpoints principais
 
+Com exceção de `/api/health`, das rotas de autenticação e das páginas da loja-demo, tudo
+exige o cabeçalho `Authorization: Bearer <token>`.
+
 | Método | Rota | O que faz |
 | --- | --- | --- |
+| `POST` | `/api/auth/registrar` | Cria conta e já devolve o token |
+| `POST` | `/api/auth/login` | Autentica e devolve o token |
+| `GET` | `/api/auth/eu` | Confirma se o token ainda vale |
 | `POST` | `/api/produtos` | Cadastra por URL + preço-alvo (faz a 1ª coleta e valida o link) |
 | `GET` | `/api/produtos` | Lista com filtro por `status` e `busca` |
 | `PATCH` | `/api/produtos/{id}` | Altera preço-alvo ou nome |
@@ -428,6 +437,14 @@ Documentação completa e testável em `/docs`.
 - **Migração aditiva sem Alembic.** O `create_all` cria tabelas mas nunca altera as
   existentes. Em vez de arrastar o Alembic inteiro, há uma rotina de ~20 linhas que só
   adiciona colunas anuláveis novas — resolve o caso real sem tocar em dado existente.
+- **Autorização por dono, não só autenticação.** O login responde "quem é você"; o risco
+  real está em "a que você tem direito". Toda rota que recebe um id confere o dono, e
+  produto de outra pessoa responde **404, não 403** — dizer "existe, mas não é seu"
+  permitiria mapear a base alheia testando ids em sequência.
+- **Unicidade de URL por usuário.** Antes do login era global, o que faria o segundo
+  usuário a cadastrar um link já monitorado levar 409. Trocar isso num banco que já existe
+  exige `ALTER TABLE`, então há uma migração dedicada (só PostgreSQL; em SQLite de
+  desenvolvimento, apagar o `.db` resolve).
 
 ---
 

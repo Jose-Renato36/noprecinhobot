@@ -24,9 +24,27 @@ class UsuarioResumo(Base):
     email: EmailStr
 
 
+# O bcrypt ignora o que passar de 72 bytes; limitar aqui evita a falsa impressão
+# de que uma senha muito longa está sendo usada por inteiro.
+SENHA = Field(min_length=8, max_length=72)
+
+
 class UsuarioCriar(BaseModel):
     nome: str = Field(min_length=1, max_length=120)
     email: EmailStr
+    senha: str = SENHA
+
+
+class LoginPedido(BaseModel):
+    email: EmailStr
+    senha: str = Field(min_length=1, max_length=72)
+
+
+class TokenResposta(BaseModel):
+    token: str
+    tipo: str = "bearer"
+    expira_em_minutos: int
+    usuario: UsuarioResumo
 
 
 # --------------------------------------------------------------------------- #
@@ -35,7 +53,8 @@ class UsuarioCriar(BaseModel):
 class ProdutoCriar(BaseModel):
     url: str = Field(min_length=8, max_length=2000)
     preco_alvo: Decimal = Field(gt=0, le=Decimal("9999999.99"))
-    usuario_id: int | None = None
+    # O dono sai do token, nunca do corpo da requisição: aceitar `usuario_id`
+    # aqui permitiria cadastrar produto na conta de outra pessoa.
 
     @field_validator("url")
     @classmethod

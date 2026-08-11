@@ -34,13 +34,16 @@ class StatusProduto(str, enum.Enum):
 
 
 class Usuario(Base):
-    """Entidade opcional na especificação: o sistema funciona com um usuário padrão."""
+    """Dono dos produtos monitorados e destinatário dos alertas por e-mail."""
 
     __tablename__ = "usuarios"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # Anulável de propósito: contas criadas antes do login existir ficam sem hash
+    # e simplesmente não conseguem entrar, em vez de quebrarem a migração.
+    senha_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora)
 
     produtos: Mapped[list["Produto"]] = relationship(back_populates="usuario")
@@ -48,7 +51,10 @@ class Usuario(Base):
 
 class Produto(Base):
     __tablename__ = "produtos"
-    __table_args__ = (UniqueConstraint("url", name="uq_produto_url"),)
+    # A unicidade é por usuário, não global: duas pessoas precisam poder
+    # monitorar o mesmo produto. Antes do login, isto era só `url`, o que faria
+    # o segundo usuário receber 409 ao cadastrar um link que outro já seguia.
+    __table_args__ = (UniqueConstraint("usuario_id", "url", name="uq_produto_usuario_url"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nome: Mapped[str] = mapped_column(String(300), nullable=False)

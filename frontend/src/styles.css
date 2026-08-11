@@ -463,6 +463,8 @@ a {
 input[type='url'],
 input[type='search'],
 input[type='number'],
+input[type='email'],
+input[type='password'],
 input[type='text'] {
   width: 100%;
   padding: 10px 12px;
@@ -1377,4 +1379,139 @@ input:focus {
     flex: 1;
     padding: 7px 10px;
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Tela de login e bloco de conta no cabeçalho                         *
+ * ------------------------------------------------------------------ */
+.login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: var(--fundo);
+}
+
+.login--aguardando {
+  color: var(--texto-fraco);
+  font-size: 14px;
+}
+
+.login__cartao {
+  width: 100%;
+  max-width: 400px;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+  padding: clamp(22px, 5vw, 32px);
+}
+
+.login__marca {
+  text-align: center;
+  margin-bottom: 26px;
+}
+
+.login__logo {
+  font-size: 34px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.login__marca h1 {
+  font-size: 23px;
+  margin: 0;
+  letter-spacing: -0.4px;
+}
+
+.login__marca h1 span {
+  color: var(--verde);
+}
+
+.login__marca p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--texto-fraco);
+}
+
+.login__form h2 {
+  font-size: 16px;
+  margin: 0 0 16px;
+}
+
+.login__erro {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-radius: var(--raio-p);
+  background: var(--vermelho-claro);
+  color: var(--vermelho);
+  font-size: 13px;
+}
+
+.login__enviar {
+  width: 100%;
+  padding: 11px 15px;
+}
+
+.login__troca {
+  margin: 16px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--texto-fraco);
+}
+
+.login__link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--verde);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.login__nota {
+  margin: 22px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--borda);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--texto-tenue);
+}
+
+.topo__conta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.topo__usuario {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto-fraco);
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topo__sair {
+  background: none;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--texto-fraco);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.topo__sair:hover {
+  border-color: var(--vermelho);
+  color: var(--vermelho);
 }
