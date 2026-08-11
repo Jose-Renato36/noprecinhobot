@@ -167,7 +167,12 @@ export default function App() {
     coletar: (p) =>
       comOcupado(p, async () => {
         const resultado = await api.coletarProduto(p.id)
-        if (!resultado.sucesso) return avisar('erro', 'Não consegui ler o preço nesta loja agora.')
+        // A mensagem do servidor diz *por que* falhou — bloqueio da loja, preço
+        // fora da página, valor descartado por destoar. Trocar isso por um texto
+        // genérico deixa a tela mais limpa e o problema indiagnosticável.
+        if (!resultado.sucesso) {
+          return avisar('erro', resultado.erro ?? 'Não consegui ler o preço nesta loja agora.')
+        }
         avisar(
           resultado.alerta_gerado ? 'sucesso' : 'info',
           resultado.alerta_gerado
