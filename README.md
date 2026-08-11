@@ -302,6 +302,7 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 | `VARIACAO_MAXIMA_FATOR` | `4.0` | Acima disso a coleta é descartada como erro de extração |
 | `NAVEGADOR_FALLBACK` | `auto` | `auto` usa o Playwright se instalado; `true` exige; `false` desliga |
 | `NAVEGADOR_ESPERA_PRECO_MS` | `8000` | Quanto o navegador espera um preço aparecer na tela |
+| `EMAIL_ENABLED` | `true` | `false` desliga o envio por completo, mesmo com chave |
 | `RESEND_API_KEY` | — | Chave da Resend. **Sem ela o alerta é só registrado no banco** |
 | `RESEND_FROM` | `onboarding@resend.dev` | Remetente |
 | `EMAIL_DESTINO` | — | Destinatário (se o usuário não tiver e-mail) |

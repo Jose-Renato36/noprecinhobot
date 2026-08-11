@@ -168,6 +168,9 @@ class Resumo(BaseModel):
     proxima_coleta_em: datetime | None
     intervalo_minutos: int
     agendador_ativo: bool
+    # O painel usa isto para não anunciar "e-mail não enviado" em cada alerta
+    # quando o envio está desligado de propósito.
+    email_ativo: bool = False
 
 
 class ResultadoColetaResposta(BaseModel):

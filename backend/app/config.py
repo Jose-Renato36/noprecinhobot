@@ -85,6 +85,10 @@ class Config:
     NAVEGADOR_ESPERA_PRECO_MS: int = _int("NAVEGADOR_ESPERA_PRECO_MS", 8000)
 
     # Notificação (Resend)
+    # Chave-geral do envio. Com false, nenhum e-mail sai mesmo que haja chave
+    # configurada — é o desligamento explícito, distinto de "faltou configurar".
+    # O alerta continua sendo gravado e aparecendo no painel.
+    EMAIL_ENABLED: bool = _bool("EMAIL_ENABLED", True)
     RESEND_API_KEY: str | None = os.getenv("RESEND_API_KEY") or None
     RESEND_FROM: str = os.getenv("RESEND_FROM", "NoPrecinhoBot <onboarding@resend.dev>")
     EMAIL_DESTINO: str | None = os.getenv("EMAIL_DESTINO") or None

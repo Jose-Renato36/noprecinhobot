@@ -327,6 +327,7 @@ export default function App() {
         {aba === 'alertas' && (
           <PainelAlertas
             alertas={alertas}
+            emailAtivo={resumo?.email_ativo ?? false}
             aoMarcarLido={async (id) => {
               await api.marcarAlertaLido(id)
               carregar()

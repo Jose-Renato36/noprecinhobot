@@ -140,6 +140,12 @@ def _buscar_produto(db: Session, produto_id: int, usuario: Usuario) -> Produto:
     return produto
 
 
+def _email_ativo() -> bool:
+    """Só é 'ativo' quando ligado **e** com chave: as duas coisas precisam valer
+    para um e-mail realmente sair."""
+    return config.EMAIL_ENABLED and bool(config.RESEND_API_KEY)
+
+
 # --------------------------------------------------------------------------- #
 # Saúde e raiz
 # --------------------------------------------------------------------------- #
@@ -149,7 +155,7 @@ def health() -> dict:
         "status": "ok",
         "agendador_ativo": scheduler.esta_ativo(),
         "intervalo_minutos": config.SCRAPE_INTERVAL_MINUTES,
-        "email_configurado": bool(config.RESEND_API_KEY),
+        "email_ativo": _email_ativo(),
         "banco": "postgresql" if "postgresql" in config.DATABASE_URL else "sqlite",
     }
 
@@ -702,6 +708,7 @@ def resumo(db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atu
         proxima_coleta_em=scheduler.proxima_execucao(),
         intervalo_minutos=config.SCRAPE_INTERVAL_MINUTES,
         agendador_ativo=scheduler.esta_ativo(),
+        email_ativo=_email_ativo(),
     )
 
 

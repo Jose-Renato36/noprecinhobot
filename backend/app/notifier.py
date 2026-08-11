@@ -1,7 +1,8 @@
 """Envio de e-mail de alerta via Resend.
 
-O envio é opcional: sem `RESEND_API_KEY` configurada o sistema apenas registra o
-alerta no banco e segue funcionando (a falha nunca derruba a coleta).
+O envio é opcional em dois níveis: `EMAIL_ENABLED=false` desliga tudo, e mesmo
+ligado, sem `RESEND_API_KEY` nada é enviado. Nos dois casos o alerta é gravado no
+banco e aparece no painel — a falha de e-mail nunca derruba a coleta.
 """
 
 from __future__ import annotations
@@ -69,6 +70,11 @@ def enviar_alerta_email(
     imagem_url: str | None = None,
 ) -> bool:
     """Retorna True se o e-mail foi aceito pela Resend. Nunca levanta exceção."""
+    if not config.EMAIL_ENABLED:
+        # Desligado de propósito: nem loga como pendência, para não encher o log
+        # de aviso a cada alerta de uma funcionalidade que ninguém pediu.
+        return False
+
     destino = destinatario or config.EMAIL_DESTINO
     if not config.RESEND_API_KEY:
         logger.info("RESEND_API_KEY ausente — alerta registrado sem envio de e-mail.")
