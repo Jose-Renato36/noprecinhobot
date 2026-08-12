@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -43,9 +44,52 @@ logging.basicConfig(
 logger = logging.getLogger("noprecinhobot")
 
 
+def _usando_sqlite() -> bool:
+    return not config.DATABASE_URL.startswith("postgresql")
+
+
+def _parece_producao() -> bool:
+    """Heurística de 'isto está publicado na internet'.
+
+    Um domínio https é o sinal mais confiável; as plataformas de hospedagem
+    também injetam variáveis próprias no ambiente.
+    """
+    return config.BASE_URL.lower().startswith("https") or any(
+        os.getenv(v) for v in ("RAILWAY_ENVIRONMENT", "RENDER", "FLY_APP_NAME", "DYNO")
+    )
+
+
+def _conferir_persistencia() -> None:
+    """Denuncia o SQLite em produção, alto e no boot.
+
+    Sem DATABASE_URL o sistema cai em SQLite dentro do container — e funciona
+    perfeitamente, até o container ser recriado. Aí some tudo: contas, produtos,
+    histórico. O silêncio desse caminho é o problema: a falha não aparece quando
+    é causada, e sim dias depois, parecendo outra coisa (`os produtos sumiram`,
+    `a coleta quebrou`).
+    """
+    if not (_usando_sqlite() and _parece_producao()):
+        return
+
+    logger.error(
+        "\n"
+        "  ============================================================\n"
+        "   ATENÇÃO: os dados NÃO estão sendo salvos de forma permanente.\n"
+        "\n"
+        "   A aplicação está publicada, mas sem PostgreSQL: ela caiu no\n"
+        "   SQLite de dentro do container. Tudo será apagado no próximo\n"
+        "   deploy ou reinício — contas, produtos e histórico de preços.\n"
+        "\n"
+        "   Correção: adicione um banco PostgreSQL ao projeto e referencie\n"
+        "   a variável DATABASE_URL no serviço da aplicação.\n"
+        "  ============================================================"
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     criar_tabelas()
+    _conferir_persistencia()
     if config.DEMO_STORE_ENABLED:
         db = SessionLocal()
         try:
@@ -188,7 +232,10 @@ def health() -> dict:
         "agendador_ativo": scheduler.esta_ativo(),
         "intervalo_minutos": config.SCRAPE_INTERVAL_MINUTES,
         "email_ativo": _email_ativo(),
-        "banco": "postgresql" if "postgresql" in config.DATABASE_URL else "sqlite",
+        "banco": "sqlite" if _usando_sqlite() else "postgresql",
+        # Publicado sobre SQLite = os dados somem no próximo deploy. Fica
+        # explícito aqui para a checagem ser uma olhada, não uma investigação.
+        "dados_persistentes": not (_usando_sqlite() and _parece_producao()),
     }
 
 
