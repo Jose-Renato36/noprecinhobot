@@ -73,7 +73,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    # A regra ampla de localhost existe para o Vite em desenvolvimento, onde a
+    # porta varia. Em produção ela some: combinada com allow_credentials, deixaria
+    # qualquer página servida de um localhost fazer requisição autenticada à API.
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1):\d+" if config.CORS_PERMITIR_LOCALHOST else None
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

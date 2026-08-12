@@ -773,6 +773,62 @@ def coletar_html(url: str, perfil: str | None = None, timeout: int | None = None
     return resposta.text, str(resposta.url)
 
 
+def conferir_destino(url: str) -> None:
+    """Recusa endereços que não são de loja pública. Levanta ScraperError.
+
+    Sem isto o sistema é um SSRF pronto: o usuário informa a URL e o **servidor**
+    faz a requisição. Um endereço como `http://169.254.169.254/` (metadados da
+    nuvem) ou `http://10.0.0.5:5432/` alcança a rede interna da hospedagem, de
+    onde o navegador de quem pediu jamais chegaria — e o conteúdo volta na
+    resposta da prévia.
+
+    A checagem é feita sobre o **IP resolvido**, não sobre o texto do domínio:
+    qualquer um pode apontar um domínio público para 127.0.0.1.
+    """
+    import ipaddress
+    import socket
+
+    partes = urlparse(url)
+    if partes.scheme not in ("http", "https"):
+        raise ScraperError("Só consigo acompanhar endereços http:// ou https://.")
+
+    host = (partes.hostname or "").strip()
+    if not host:
+        raise ScraperError("Endereço inválido.")
+
+    # A loja-demo é servida pela própria API, quase sempre em 127.0.0.1 — ela é
+    # a exceção legítima, liberada por ser exatamente o nosso próprio endereço.
+    if host.lower() == (urlparse(config.BASE_URL).hostname or "").lower():
+        return
+
+    if config.PERMITIR_REDE_INTERNA:
+        return
+
+    try:
+        enderecos = socket.getaddrinfo(host, partes.port or (443 if partes.scheme == "https" else 80))
+    except socket.gaierror:
+        # Nome que não resolve não oferece risco: não há endereço interno a
+        # alcançar. Deixamos seguir para o caminho normal de requisição, que
+        # falha com uma mensagem melhor do que "endereço inválido".
+        return
+
+    for familia, _tipo, _proto, _nome, sockaddr in enderecos:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            continue
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            logger.warning("Destino interno recusado: %s -> %s", host, ip)
+            raise ScraperError("Esse endereço não é de uma loja pública.")
+
+
 def raspar_produto(url: str, dica: Dica | None = None) -> ResultadoScrape:
     """Coleta e interpreta a página de um produto.
 
@@ -780,6 +836,7 @@ def raspar_produto(url: str, dica: Dica | None = None) -> ResultadoScrape:
     sucesso é ter extraído o preço, não ter recebido HTTP 200: lojas com antibot
     devolvem 200 com uma página de desafio vazia.
     """
+    conferir_destino(url)
     dica = dica or Dica()
     dominio = _dominio(url)
     preferido = dica.perfil or _PERFIL_POR_DOMINIO.get(dominio)

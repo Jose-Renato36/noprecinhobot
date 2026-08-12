@@ -145,6 +145,19 @@ class Config:
     ]
     BASE_URL: str = os.getenv("BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 
+    # Libera o scraper a alcançar endereços de rede interna. Fica desligado: o
+    # usuário informa a URL e quem faz a requisição é o servidor, então sem essa
+    # trava o sistema serve de ponte para a rede privada da hospedagem (SSRF).
+    # Ligue apenas para desenvolver contra uma loja local que não seja a BASE_URL.
+    PERMITIR_REDE_INTERNA: bool = _bool("PERMITIR_REDE_INTERNA", False)
+
+    # Só libera a origem localhost no CORS quando a API não está em HTTPS. Em
+    # produção a regra ampla sobra: o painel é servido pela mesma origem.
+    CORS_PERMITIR_LOCALHOST: bool = _bool(
+        "CORS_PERMITIR_LOCALHOST",
+        not (os.getenv("BASE_URL", "")).lower().startswith("https"),
+    )
+
     # Loja de demonstração (páginas HTML reais servidas pela própria API)
     DEMO_STORE_ENABLED: bool = _bool("DEMO_STORE_ENABLED", True)
 

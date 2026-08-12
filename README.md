@@ -321,6 +321,8 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 | `LOGIN_BLOQUEIO_SEGUNDOS` | `60` | Duração do 1º bloqueio (dobra a cada rodada) |
 | `LOGIN_BLOQUEIO_TETO_SEGUNDOS` | `900` | Teto do bloqueio (15 min) |
 | `BASE_URL` | `http://127.0.0.1:8000` | URL pública da API (usada nos links da loja-demo) |
+| `PERMITIR_REDE_INTERNA` | `false` | Deixa o scraper alcançar endereços privados. **Mantenha `false`** |
+| `CORS_PERMITIR_LOCALHOST` | segue a `BASE_URL` | Libera origem localhost; desliga sozinho em `https` |
 | `CORS_ORIGINS` | `localhost:5173` | Origens liberadas para o frontend |
 | `DEMO_STORE_ENABLED` | `true` | Liga a loja fictícia |
 
@@ -467,6 +469,16 @@ Documentação completa e testável em `/docs`.
   mesma origem, então `SameSite=Strict` resolve. Sem data de expiração, o cookie morre ao
   fechar o navegador; o JWT de 12 h é a rede de segurança para quem deixa o navegador
   aberto por dias.
+- **A URL é do usuário, mas a requisição é do servidor.** É a definição de SSRF: um
+  endereço como `169.254.169.254` (metadados da nuvem) ou `10.0.0.5:5432` alcança a rede
+  privada da hospedagem, onde o navegador de quem pediu jamais chegaria — e o conteúdo
+  volta na resposta da prévia. A checagem é feita sobre o **IP resolvido**, não sobre o
+  texto do domínio, porque qualquer um aponta um domínio público para `127.0.0.1`. A
+  loja-demo é a exceção liberada, por ser a própria `BASE_URL`.
+- **Uma rodada por vez, mesmo com vários processos.** O agendador vive dentro do processo
+  web; subir para 2 workers faria a coleta acontecer em duplicata — o dobro de requisições
+  às lojas e pontos repetidos no histórico, sem levantar erro nenhum. Uma trava consultiva
+  do PostgreSQL resolve sem infraestrutura nova: quem pega, coleta; quem não pega, pula.
 - **Duas defesas contra abuso, não uma.** O limite por IP segura quem martela a API; a
   trava por conta segura o ataque distribuído contra *um* e-mail, em que cada tentativa
   vem de um IP diferente e nenhum limite por IP chega a disparar. Uma não substitui a

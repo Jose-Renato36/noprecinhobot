@@ -11,13 +11,16 @@ Em produção na Railway há duas formas de rodar (escolha uma):
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import text
 
 from .config import config
-from .database import SessionLocal
+from .database import SessionLocal, engine
 from .monitor import coletar_todos
 
 logger = logging.getLogger(__name__)
@@ -26,15 +29,61 @@ ID_JOB = "coleta_periodica"
 _scheduler: BackgroundScheduler | None = None
 
 
+# Identificador arbitrário da trava; só precisa ser estável e não colidir com
+# outro uso de advisory lock no mesmo banco.
+CHAVE_TRAVA = 8274613
+
+
+@contextmanager
+def _trava_de_rodada() -> Iterator[bool]:
+    """Garante uma rodada por vez, mesmo com vários processos da API no ar.
+
+    O agendador vive dentro do processo web. Subindo para 2 workers, cada um
+    sobe o seu — e a coleta acontece em duplicata: o dobro de requisições para as
+    lojas e pontos repetidos no histórico. Nada disso levanta erro, então
+    passaria despercebido.
+
+    A trava consultiva do PostgreSQL resolve sem infraestrutura nova: quem pega,
+    coleta; quem não pega, pula a rodada. No SQLite não há concorrência entre
+    processos, então segue direto.
+    """
+    if not config.DATABASE_URL.startswith("postgresql"):
+        yield True
+        return
+
+    conexao = engine.connect()
+    try:
+        obtida = bool(
+            conexao.execute(
+                text("SELECT pg_try_advisory_lock(:chave)"), {"chave": CHAVE_TRAVA}
+            ).scalar()
+        )
+        try:
+            yield obtida
+        finally:
+            if obtida:
+                conexao.execute(
+                    text("SELECT pg_advisory_unlock(:chave)"), {"chave": CHAVE_TRAVA}
+                )
+    finally:
+        conexao.close()
+
+
 def executar_rodada() -> None:
     """Alvo do job: abre a própria sessão, coleta tudo e fecha."""
-    db = SessionLocal()
     try:
-        coletar_todos(db)
+        with _trava_de_rodada() as minha_vez:
+            if not minha_vez:
+                logger.info("Outra instância já está coletando; esta rodada foi pulada.")
+                return
+
+            db = SessionLocal()
+            try:
+                coletar_todos(db)
+            finally:
+                db.close()
     except Exception:  # um erro aqui não pode matar o agendador
         logger.exception("Erro inesperado durante a rodada agendada.")
-    finally:
-        db.close()
 
 
 def iniciar_agendador() -> BackgroundScheduler | None:
