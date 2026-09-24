@@ -9,25 +9,7 @@ class ApiError extends Error {
   }
 }
 
-// Não há token guardado aqui de propósito. A sessão vive num cookie httpOnly,
-// que este código não consegue ler nem escrever — é o ponto: um XSS nesta página
-// também não conseguiria. Quem gerencia o cookie é o navegador, e o servidor o
-// apaga em /api/auth/sair.
-//
-// O App se inscreve em `aoExpirar` para voltar à tela de login quando a sessão
-// morre, sem espalhar try/catch por toda parte.
-let aoExpirar = null
-
-export const sessao = {
-  aoExpirar: (callback) => {
-    aoExpirar = callback
-  },
-}
-
-async function pedir(
-  caminho,
-  { metodo = 'GET', corpo, publico = false, silencioso = false, ...resto } = {},
-) {
+async function pedir(caminho, { metodo = 'GET', corpo } = {}) {
   const cabecalhos = {}
   if (corpo !== undefined) cabecalhos['Content-Type'] = 'application/json'
 
@@ -36,22 +18,10 @@ async function pedir(
     resposta = await fetch(caminho, {
       method: metodo,
       headers: cabecalhos,
-      // Pelo proxy do Vite, painel e API ficam na mesma origem, então
-      // same-origin basta e é mais restritivo que 'include'.
-      credentials: 'same-origin',
       body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
-      ...resto,
     })
   } catch {
     throw new ApiError('Não foi possível falar com o servidor. Ele está rodando?', 0)
-  }
-
-  // 401 numa rota autenticada significa sessão morta. Ficam de fora as rotas
-  // públicas (errar a senha não é sessão expirada) e as silenciosas — a
-  // checagem de boot leva 401 legítimo de quem nunca entrou, e avisar "sua
-  // sessão expirou" a um visitante novo não faria sentido.
-  if (resposta.status === 401 && !publico && !silencioso) {
-    aoExpirar?.()
   }
 
   if (resposta.status === 204) return null
@@ -83,16 +53,6 @@ function extrairMensagem(dados) {
 }
 
 export const api = {
-  registrar: (nome, email, senha) =>
-    pedir('/api/auth/registrar', { metodo: 'POST', corpo: { nome, email, senha }, publico: true }),
-  login: (email, senha) =>
-    pedir('/api/auth/login', { metodo: 'POST', corpo: { email, senha }, publico: true }),
-  // Silenciosa: é a checagem de boot, e 401 aqui é o caso normal de quem chega
-  // deslogado, não uma sessão que caiu.
-  eu: () => pedir('/api/auth/eu', { silencioso: true }),
-  // O cookie é httpOnly: só o servidor consegue apagá-lo.
-  sair: () => pedir('/api/auth/sair', { metodo: 'POST', publico: true }),
-
   resumo: () => pedir('/api/resumo'),
   health: () => pedir('/api/health'),
   saudeLojas: () => pedir('/api/lojas'),

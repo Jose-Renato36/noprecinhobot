@@ -38,8 +38,8 @@ Opcional: `playwright install chromium` baixa o navegador (~150 MB) usado como �
 em lojas que montam o preço por JavaScript. Sem ele o scraper funciona igual, só sem essa
 camada — ela se desliga sozinha.
 
-Opcional: `copy .env.example .env` (ou `cp`) para ajustar intervalo de coleta, chave dos
-tokens etc. Veja [Configuração](#configuração).
+Opcional: `copy .env.example .env` (ou `cp`) para ajustar o intervalo de coleta e o
+comportamento do scraper. Veja [Configuração](#configuração).
 
 ### 2. Frontend (painel React)
 
@@ -51,7 +51,7 @@ npm install
 npm run dev
 ```
 
-Abra <http://localhost:5173>, crie uma conta e pronto. O Vite repassa `/api` para o backend,
+Abra <http://localhost:5173> e pronto — o painel abre direto, sem login. O Vite repassa `/api` para o backend,
 então não há URL de API para configurar.
 
 ### 3. Rodar os testes
@@ -92,8 +92,7 @@ O produto também é monitorado sozinho: o agendador roda no intervalo definido 
 | Backend / API | Python + FastAPI | CRUD de produto, coleta, histórico, alertas |
 | Scraper | BeautifulSoup + curl_cffi | Extrai nome, preço e imagem; se adapta ao HTML da loja |
 | Agendador | APScheduler | Dispara a coleta periodicamente, dentro do processo da API |
-| Banco | SQLite | Usuários, produtos, histórico e alertas |
-| Login | bcrypt + JWT em cookie httpOnly | Cada conta vê só a própria lista |
+| Banco | SQLite | Produtos, histórico e alertas |
 
 ```
 React (Vite) ──/api──▶  FastAPI  ──▶  scraper (BeautifulSoup)  ──▶  página da loja
@@ -113,18 +112,16 @@ noprecinhobot/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py        API FastAPI (rotas)
-│   │   ├── models.py      Usuário, Produto, HistoricoPreco, Alerta
+│   │   ├── models.py      Produto, HistoricoPreco, Alerta
 │   │   ├── schemas.py     Contratos de entrada/saída (Pydantic)
 │   │   ├── scraper.py     Extração adaptativa de nome/preço/imagem
 │   │   ├── monitor.py     Coleta + regras de alerta
 │   │   ├── scheduler.py   Agendador interno (APScheduler)
 │   │   ├── navegador.py   Fallback de navegador (Playwright), opcional
-│   │   ├── auth.py        Hash de senha, token e sessão
-│   │   ├── limitador.py   Limite de requisições e trava de login
 │   │   ├── demo_store.py  Loja fictícia TechPrecinho
 │   │   ├── database.py    Engine e sessão do SQLAlchemy
 │   │   └── config.py      Configuração por variáveis de ambiente
-│   └── tests/             Scraper, regras de alerta, login, limites e SSRF
+│   └── tests/             Scraper, regras de alerta e rotas da API
 └── frontend/
     └── src/
         ├── App.jsx        Estado e navegação por abas
@@ -141,7 +138,9 @@ noprecinhobot/
 - **HistoricoPreco** — um registro por coleta: produto, preço, data/hora.
 - **Alerta** — gerado quando o preço atinge o alvo: preço de disparo, alvo, mensagem, se já
   foi lido.
-- **Usuario** — dono dos produtos. Cada conta vê e mexe só na própria lista.
+
+A especificação trazia **Usuário** como entidade opcional. Como o sistema roda na máquina de
+quem usa, há uma lista só e nenhum login.
 
 ### O scraper adaptativo
 
@@ -288,7 +287,8 @@ Para ver funcionando, a loja-demo tem uma versão que monta o preço por JS em
   caso de quem instalou o pacote mas esqueceu o `playwright install chromium`.
 
 **Custo:** ~150 MB de Chromium baixados uma vez. Se preferir não usar,
-`NAVEGADOR_FALLBACK=false` e tudo segue por HTTP. **Não resolve antibot** — Shopee, Magalu e Mercado Livre foram testados e continuam bloqueando.
+`NAVEGADOR_FALLBACK=false` e tudo segue por HTTP. **Não resolve antibot** — Shopee, Magalu
+e Mercado Livre foram testados e continuam bloqueando.
 
 ### Regra de alerta
 
@@ -313,35 +313,14 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 | `VARIACAO_MAXIMA_FATOR` | `4.0` | Acima disso a coleta é descartada como erro de extração |
 | `NAVEGADOR_FALLBACK` | `auto` | `auto` usa o Playwright se instalado; `true` exige; `false` desliga |
 | `NAVEGADOR_ESPERA_PRECO_MS` | `8000` | Quanto o navegador espera um preço aparecer na tela |
-| `SECRET_KEY` | aleatória por início | Assina os tokens. Sem ela, todo reinício da API (inclusive o `--reload`) desloga todo mundo |
-| `JWT_EXPIRA_MINUTOS` | `720` | Validade do token (12 horas) |
-| `COOKIE_PERSISTENTE` | `false` | `false` = sessão morre ao fechar o navegador |
-| `REGISTRO_ABERTO` | `true` | Com `false`, ninguém cria conta nova; as existentes seguem entrando |
-| `RATE_LIMIT_ENABLED` | `true` | Liga as proteções contra abuso |
-| `LIMITE_LOGIN` · `_JANELA` | `10` · `300` | Tentativas de login por IP a cada 5 min |
-| `LIMITE_REGISTRO` · `_JANELA` | `5` · `3600` | Contas criadas por IP por hora |
-| `LIMITE_SCRAPING` · `_JANELA` | `20` · `60` | Chamadas que disparam o scraper, por IP por minuto |
-| `LOGIN_MAX_FALHAS` | `5` | Senhas erradas antes de trancar a conta |
-| `LOGIN_BLOQUEIO_SEGUNDOS` | `60` | Duração do 1º bloqueio (dobra a cada rodada) |
-| `LOGIN_BLOQUEIO_TETO_SEGUNDOS` | `900` | Teto do bloqueio (15 min) |
-| `PERMITIR_REDE_INTERNA` | `false` | Deixa o scraper alcançar endereços da rede local |
 | `BASE_URL` | `http://127.0.0.1:8000` | Endereço da API (usado nos links da loja-demo) |
 
 ---
 
 ## Endpoints principais
 
-Com exceção de `/api/health`, das rotas de autenticação e das páginas da loja-demo, tudo
-exige sessão. O painel usa o cookie `httpOnly` gravado no login; clientes que não são
-navegador (o `/docs`, curl, scripts) mandam `Authorization: Bearer <token>`, e o token vem
-no corpo da resposta de login justamente para isso.
-
 | Método | Rota | O que faz |
 | --- | --- | --- |
-| `POST` | `/api/auth/registrar` | Cria conta e já devolve o token |
-| `POST` | `/api/auth/login` | Autentica e devolve o token |
-| `POST` | `/api/auth/sair` | Apaga o cookie de sessão |
-| `GET` | `/api/auth/eu` | Confirma se a sessão ainda vale |
 | `POST` | `/api/produtos` | Cadastra por URL + preço-alvo (faz a 1ª coleta e valida o link) |
 | `GET` | `/api/produtos` | Lista com filtro por `status` e `busca` |
 | `PATCH` | `/api/produtos/{id}` | Altera preço-alvo ou nome |
@@ -377,29 +356,6 @@ Documentação completa e testável em `/docs`.
   existentes. Em vez de arrastar o Alembic inteiro, uma rotina curta adiciona colunas
   anuláveis novas e remove as que saíram do modelo (hoje só `alertas.email_enviado`, do
   tempo em que havia e-mail) — um banco criado por versão anterior continua funcionando.
-- **Autorização por dono, não só autenticação.** O login responde "quem é você"; o risco
-  real está em "a que você tem direito". Toda rota que recebe um id confere o dono, e
-  produto de outra pessoa responde **404, não 403** — dizer "existe, mas não é seu"
-  permitiria mapear a base alheia testando ids em sequência.
-- **Sessão em cookie `httpOnly`, não em `localStorage`.** Os dois armazenamentos do
-  navegador (`localStorage` e `sessionStorage`) são legíveis por JavaScript: um XSS copia
-  o token e o reusa de outro lugar. O cookie `httpOnly` a página não consegue nem ler. O
-  custo normal dessa escolha é ter que tratar CSRF, mas pelo proxy do Vite painel e API
-  ficam na mesma origem, então `SameSite=Strict` resolve. Sem data de expiração, o cookie
-  morre ao fechar o navegador; o JWT de 12 h é a rede de segurança para quem deixa o
-  navegador aberto por dias.
-- **A URL é do usuário, mas a requisição é do servidor.** É a definição de SSRF: um
-  endereço como `192.168.0.1` (o roteador) ou `10.0.0.5:5432` alcança a rede local da
-  máquina que roda a API — e o conteúdo volta na resposta da prévia. A checagem é feita
-  sobre o **IP resolvido**, não sobre o texto do domínio, porque qualquer um aponta um
-  domínio público para `127.0.0.1`. A loja-demo é a exceção liberada, por ser a própria
-  `BASE_URL`.
-- **Duas defesas contra abuso, não uma.** O limite por IP segura quem martela a API; a
-  trava por conta segura o ataque distribuído contra *um* e-mail, em que cada tentativa
-  vem de um IP diferente e nenhum limite por IP chega a disparar. Uma não substitui a
-  outra.
-- **Estado do limitador em memória.** A API roda num processo só, então um dicionário
-  basta — sem armazenamento externo para instalar.
 
 ---
 
@@ -419,6 +375,11 @@ vez, legalmente e sem raspagem.
 
 **Fila com workers.** Hoje a rodada é um laço sequencial com pausa entre produtos. Passando
 de algumas dezenas de itens, o certo é uma fila com rate limit por domínio.
+
+**Uso por mais de uma pessoa.** Para publicar o sistema na internet, ele precisaria de novo
+de login com escopo por usuário, limite de requisições e bloqueio de endereços internos no
+scraper (a URL é do usuário, mas quem faz a requisição é o servidor). Uma versão anterior
+tinha tudo isso, e está no histórico do git.
 
 **Aviso fora do painel.** O alerta hoje aparece no painel. Um canal que chegue sem o painel
 aberto (e-mail, Telegram, notificação do sistema) é o passo natural — uma versão antiga

@@ -1,4 +1,4 @@
-"""Entidades do sistema: Usuário, Produto, Histórico de Preço, Alerta."""
+"""Entidades do sistema: Produto, Histórico de Preço, Alerta."""
 
 from __future__ import annotations
 
@@ -33,28 +33,9 @@ class StatusProduto(str, enum.Enum):
     ERRO = "erro"
 
 
-class Usuario(Base):
-    """Dono dos produtos monitorados. Cada conta vê só a própria lista."""
-
-    __tablename__ = "usuarios"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    nome: Mapped[str] = mapped_column(String(120), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    # Anulável de propósito: contas criadas antes do login existir ficam sem hash
-    # e simplesmente não conseguem entrar, em vez de quebrarem a migração.
-    senha_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora)
-
-    produtos: Mapped[list["Produto"]] = relationship(back_populates="usuario")
-
-
 class Produto(Base):
     __tablename__ = "produtos"
-    # A unicidade é por usuário, não global: duas pessoas precisam poder
-    # monitorar o mesmo produto. Antes do login, isto era só `url`, o que faria
-    # o segundo usuário receber 409 ao cadastrar um link que outro já seguia.
-    __table_args__ = (UniqueConstraint("usuario_id", "url", name="uq_produto_usuario_url"),)
+    __table_args__ = (UniqueConstraint("url", name="uq_produto_url"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nome: Mapped[str] = mapped_column(String(300), nullable=False)
@@ -88,11 +69,6 @@ class Produto(Base):
     ultima_coleta_em: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-
-    usuario_id: Mapped[int | None] = mapped_column(
-        ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True
-    )
-    usuario: Mapped["Usuario | None"] = relationship(back_populates="produtos")
 
     historico: Mapped[list["HistoricoPreco"]] = relationship(
         back_populates="produto",

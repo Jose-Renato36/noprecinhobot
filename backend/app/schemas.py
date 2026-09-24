@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .models import StatusProduto
 
@@ -16,45 +16,11 @@ class Base(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Usuário
-# --------------------------------------------------------------------------- #
-class UsuarioResumo(Base):
-    id: int
-    nome: str
-    email: EmailStr
-
-
-# O bcrypt ignora o que passar de 72 bytes; limitar aqui evita a falsa impressão
-# de que uma senha muito longa está sendo usada por inteiro.
-SENHA = Field(min_length=8, max_length=72)
-
-
-class UsuarioCriar(BaseModel):
-    nome: str = Field(min_length=1, max_length=120)
-    email: EmailStr
-    senha: str = SENHA
-
-
-class LoginPedido(BaseModel):
-    email: EmailStr
-    senha: str = Field(min_length=1, max_length=72)
-
-
-class TokenResposta(BaseModel):
-    token: str
-    tipo: str = "bearer"
-    expira_em_minutos: int
-    usuario: UsuarioResumo
-
-
-# --------------------------------------------------------------------------- #
 # Produto
 # --------------------------------------------------------------------------- #
 class ProdutoCriar(BaseModel):
     url: str = Field(min_length=8, max_length=2000)
     preco_alvo: Decimal = Field(gt=0, le=Decimal("9999999.99"))
-    # O dono sai do token, nunca do corpo da requisição: aceitar `usuario_id`
-    # aqui permitiria cadastrar produto na conta de outra pessoa.
 
     @field_validator("url")
     @classmethod
@@ -94,7 +60,6 @@ class ProdutoResposta(Base):
     ultimo_erro: str | None
     criado_em: datetime
     ultima_coleta_em: datetime | None
-    usuario: UsuarioResumo | None = None
 
     # Memória do scraper adaptativo — mostrada no painel para dar visibilidade
     # de *como* aquele preço foi obtido.
