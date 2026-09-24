@@ -34,7 +34,7 @@ class StatusProduto(str, enum.Enum):
 
 
 class Usuario(Base):
-    """Dono dos produtos monitorados e destinatário dos alertas por e-mail."""
+    """Dono dos produtos monitorados. Cada conta vê só a própria lista."""
 
     __tablename__ = "usuarios"
 
@@ -143,7 +143,6 @@ class Alerta(Base):
     preco_alvo: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     mensagem: Mapped[str] = mapped_column(Text, nullable=False)
     lido: Mapped[bool] = mapped_column(Boolean, default=False)
-    email_enviado: Mapped[bool] = mapped_column(Boolean, default=False)
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=agora, index=True
     )

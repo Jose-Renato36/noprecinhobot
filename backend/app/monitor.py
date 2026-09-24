@@ -13,10 +13,15 @@ from sqlalchemy.orm import Session
 
 from .config import config
 from .models import Alerta, HistoricoPreco, Produto, StatusProduto
-from .notifier import formatar_brl, enviar_alerta_email
 from .scraper import Dica, ScraperError, raspar_produto
 
 logger = logging.getLogger(__name__)
+
+
+def formatar_brl(valor: Decimal | float | None) -> str:
+    if valor is None:
+        return "—"
+    return f"R$ {Decimal(str(valor)):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def _preco_e_confiavel(produto: Produto, novo: Decimal) -> str | None:
@@ -51,7 +56,6 @@ class ResultadoColeta:
     sucesso: bool
     preco: Decimal | None = None
     alerta_gerado: bool = False
-    email_enviado: bool = False
     erro: str | None = None
 
 
@@ -90,7 +94,6 @@ class ResumoRodada:
                     "sucesso": r.sucesso,
                     "preco": float(r.preco) if r.preco is not None else None,
                     "alerta_gerado": r.alerta_gerado,
-                    "email_enviado": r.email_enviado,
                     "erro": r.erro,
                 }
                 for r in self.resultados
@@ -170,7 +173,6 @@ def coletar_produto(db: Session, produto: Produto, forcar: bool = False) -> Resu
 
     alvo_atingido = preco <= Decimal(str(produto.preco_alvo))
     gerou_alerta = False
-    email_enviado = False
 
     if produto.status != StatusProduto.PAUSADO:
         produto.status = (
@@ -178,20 +180,11 @@ def coletar_produto(db: Session, produto: Produto, forcar: bool = False) -> Resu
         )
 
     # O alerta só nasce na *transição* para "alvo atingido" — assim uma promoção
-    # que dura vários dias não gera um e-mail a cada coleta.
+    # que dura vários dias não gera um aviso novo a cada coleta.
     if alvo_atingido and estava_acima_do_alvo:
         mensagem = (
             f"{produto.nome} está por {formatar_brl(preco)} — seu preço-alvo era "
             f"{formatar_brl(produto.preco_alvo)}."
-        )
-        destinatario = produto.usuario.email if produto.usuario else None
-        email_enviado = enviar_alerta_email(
-            destinatario=destinatario,
-            nome_produto=produto.nome,
-            url_produto=produto.url,
-            preco_atual=preco,
-            preco_alvo=Decimal(str(produto.preco_alvo)),
-            imagem_url=produto.imagem_url,
         )
         db.add(
             Alerta(
@@ -199,7 +192,6 @@ def coletar_produto(db: Session, produto: Produto, forcar: bool = False) -> Resu
                 preco_disparo=preco,
                 preco_alvo=produto.preco_alvo,
                 mensagem=mensagem,
-                email_enviado=email_enviado,
             )
         )
         gerou_alerta = True
@@ -213,7 +205,6 @@ def coletar_produto(db: Session, produto: Produto, forcar: bool = False) -> Resu
         sucesso=True,
         preco=preco,
         alerta_gerado=gerou_alerta,
-        email_enviado=email_enviado,
     )
 
 

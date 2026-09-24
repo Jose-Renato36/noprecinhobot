@@ -28,38 +28,19 @@ import logging
 import re
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from html import unescape
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
+from curl_cffi import requests as cliente_http
+from curl_cffi.requests.exceptions import RequestException
 
 from . import navegador
 from .config import config
 
 logger = logging.getLogger(__name__)
-
-# A curl_cffi é opcional: sem ela o scraper cai no `requests` e perde só a
-# capacidade de furar antibot — todo o resto continua funcionando.
-try:
-    from curl_cffi import requests as cliente_http
-
-    IMPERSONACAO_DISPONIVEL = True
-except ImportError:  # pragma: no cover - caminho de degradação
-    import requests as cliente_http
-
-    IMPERSONACAO_DISPONIVEL = False
-
-_excecoes = getattr(cliente_http, "exceptions", None)
-ERROS_DE_REDE = tuple(
-    filtro
-    for filtro in (
-        getattr(_excecoes, "RequestException", None),
-        getattr(_excecoes, "RequestsError", None),
-    )
-    if filtro is not None
-) or (Exception,)
 
 # Ordem de tentativa. Cobre as quatro impressões digitais que as lojas brasileiras
 # aceitam; a primeira que devolver um preço válido vira a preferida do domínio.
@@ -70,11 +51,6 @@ CABECALHOS = {
     "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
     "Upgrade-Insecure-Requests": "1",
 }
-# Só é preciso forjar o User-Agent quando não há impersonação de verdade.
-USER_AGENT_MANUAL = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
 
 STATUS_TEMPORARIOS = {429, 500, 502, 503, 504}
 
@@ -733,24 +709,17 @@ def coletar_html(url: str, perfil: str | None = None, timeout: int | None = None
     if not re.match(r"^https?://", url, re.I):
         raise ScraperError("A URL precisa começar com http:// ou https://")
 
-    cabecalhos = dict(CABECALHOS)
-    opcoes: dict = {}
-    if IMPERSONACAO_DISPONIVEL:
-        opcoes["impersonate"] = perfil or PERFIS_NAVEGADOR[0]
-    else:
-        cabecalhos["User-Agent"] = USER_AGENT_MANUAL
-
     ultimo_status = None
     for tentativa in range(config.SCRAPER_TENTATIVAS):
         try:
             resposta = cliente_http.get(
                 url,
-                headers=cabecalhos,
+                headers=CABECALHOS,
                 timeout=timeout or config.SCRAPER_TIMEOUT,
                 allow_redirects=True,
-                **opcoes,
+                impersonate=perfil or PERFIS_NAVEGADOR[0],
             )
-        except ERROS_DE_REDE as exc:
+        except RequestException as exc:
             if "timed out" in str(exc).lower() or "timeout" in type(exc).__name__.lower():
                 raise ScraperError("A loja demorou demais para responder (timeout).") from exc
             raise ScraperError(f"Não foi possível acessar a página: {exc}") from exc
@@ -769,7 +738,7 @@ def coletar_html(url: str, perfil: str | None = None, timeout: int | None = None
     if ultimo_status and ultimo_status >= 400:
         raise ScraperError(f"A loja respondeu com HTTP {ultimo_status}.")
 
-    resposta.encoding = resposta.encoding or getattr(resposta, "apparent_encoding", None) or "utf-8"
+    resposta.encoding = resposta.encoding or "utf-8"
     return resposta.text, str(resposta.url)
 
 
@@ -843,8 +812,6 @@ def raspar_produto(url: str, dica: Dica | None = None) -> ResultadoScrape:
 
     perfis = [preferido] if preferido else []
     perfis += [p for p in PERFIS_NAVEGADOR if p != preferido]
-    if not IMPERSONACAO_DISPONIVEL:
-        perfis = [None]
 
     ultimo_erro: ScraperError | None = None
     melhor_parcial: ResultadoScrape | None = None
@@ -859,8 +826,7 @@ def raspar_produto(url: str, dica: Dica | None = None) -> ResultadoScrape:
         resultado = extrair_da_pagina(html, url_final, dica)
         resultado.perfil = perfil
         if resultado.valido:
-            if perfil:
-                _PERFIL_POR_DOMINIO[dominio] = perfil
+            _PERFIL_POR_DOMINIO[dominio] = perfil
             if not resultado.nome:
                 resultado.nome = f"Produto em {resultado.loja}"
             return resultado

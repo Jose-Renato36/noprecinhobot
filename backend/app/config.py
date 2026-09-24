@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-RAIZ_PROJETO = BASE_DIR.parent
 
 load_dotenv(BASE_DIR / ".env")
 
@@ -36,33 +35,22 @@ def _segredo() -> str:
     """Chave de assinatura dos tokens.
 
     Sem SECRET_KEY definida, geramos uma aleatória: é seguro por padrão, mas
-    reinicia todas as sessões a cada boot (e, com mais de uma instância, os
-    tokens de uma não valem na outra). Em produção, defina a variável.
+    reinicia todas as sessões a cada boot. Defina a variável no .env para o
+    login sobreviver a reinícios.
     """
     valor = os.getenv("SECRET_KEY")
     if valor and valor.strip():
         return valor.strip()
     logger.warning(
         "SECRET_KEY não definida — usando uma chave aleatória. Os logins serão "
-        "perdidos a cada reinício. Defina SECRET_KEY em produção."
+        "perdidos a cada reinício. Defina SECRET_KEY no .env."
     )
     return secrets.token_urlsafe(48)
 
 
-def _normalizar_database_url(url: str) -> str:
-    """A Railway entrega `postgres://...`; o SQLAlchemy 2 espera um driver explícito."""
-    if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+psycopg://", 1)
-    elif url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
-    return url
-
-
 class Config:
-    # Banco: PostgreSQL em produção (Railway), SQLite no desenvolvimento local.
-    DATABASE_URL: str = _normalizar_database_url(
-        os.getenv("DATABASE_URL") or f"sqlite:///{(BASE_DIR / 'noprecinho.db').as_posix()}"
-    )
+    # Banco: um arquivo SQLite em backend/noprecinho.db.
+    DATABASE_URL: str = f"sqlite:///{(BASE_DIR / 'noprecinho.db').as_posix()}"
 
     # Agendador
     SCHEDULER_ENABLED: bool = _bool("SCHEDULER_ENABLED", True)
@@ -83,15 +71,6 @@ class Config:
     NAVEGADOR_FALLBACK: str = (os.getenv("NAVEGADOR_FALLBACK") or "auto").strip().lower()
     NAVEGADOR_TIMEOUT_MS: int = _int("NAVEGADOR_TIMEOUT_MS", 45000)
     NAVEGADOR_ESPERA_PRECO_MS: int = _int("NAVEGADOR_ESPERA_PRECO_MS", 8000)
-
-    # Notificação (Resend)
-    # Chave-geral do envio. Com false, nenhum e-mail sai mesmo que haja chave
-    # configurada — é o desligamento explícito, distinto de "faltou configurar".
-    # O alerta continua sendo gravado e aparecendo no painel.
-    EMAIL_ENABLED: bool = _bool("EMAIL_ENABLED", True)
-    RESEND_API_KEY: str | None = os.getenv("RESEND_API_KEY") or None
-    RESEND_FROM: str = os.getenv("RESEND_FROM", "NoPrecinhoBot <onboarding@resend.dev>")
-    EMAIL_DESTINO: str | None = os.getenv("EMAIL_DESTINO") or None
 
     # Autenticação
     SECRET_KEY: str = _segredo()
@@ -117,10 +96,10 @@ class Config:
 
     # Proteção contra abuso
     RATE_LIMIT_ENABLED: bool = _bool("RATE_LIMIT_ENABLED", True)
-    # Quantos proxies confiáveis existem à frente da API. Na Railway (e em
-    # qualquer PaaS com proxy na borda) é 1. Deixe 0 se a API for exposta direto:
-    # confiar no X-Forwarded-For sem proxy permite forjar o IP e furar o limite.
-    CONFIAR_PROXIES: int = _int("CONFIAR_PROXIES", 1)
+    # Quantos proxies confiáveis existem à frente da API. Rodando localmente não
+    # há nenhum, então fica 0: confiar no X-Forwarded-For sem proxy permitiria
+    # forjar o IP e furar o limite.
+    CONFIAR_PROXIES: int = _int("CONFIAR_PROXIES", 0)
 
     LIMITE_LOGIN: int = _int("LIMITE_LOGIN", 10)
     LIMITE_LOGIN_JANELA: int = _int("LIMITE_LOGIN_JANELA", 300)  # 5 min
@@ -151,21 +130,11 @@ class Config:
     # Ligue apenas para desenvolver contra uma loja local que não seja a BASE_URL.
     PERMITIR_REDE_INTERNA: bool = _bool("PERMITIR_REDE_INTERNA", False)
 
-    # Só libera a origem localhost no CORS quando a API não está em HTTPS. Em
-    # produção a regra ampla sobra: o painel é servido pela mesma origem.
+    # Só libera a origem localhost no CORS quando a API não está em HTTPS.
     CORS_PERMITIR_LOCALHOST: bool = _bool(
         "CORS_PERMITIR_LOCALHOST",
         not (os.getenv("BASE_URL", "")).lower().startswith("https"),
     )
-
-    # Loja de demonstração (páginas HTML reais servidas pela própria API)
-    DEMO_STORE_ENABLED: bool = _bool("DEMO_STORE_ENABLED", True)
-
-    # Frontend compilado (usado quando se faz deploy de tudo num serviço só)
-    FRONTEND_DIST: Path = Path(
-        os.getenv("FRONTEND_DIST", str(RAIZ_PROJETO / "frontend" / "dist"))
-    )
-
 
 @lru_cache
 def get_config() -> Config:

@@ -7,12 +7,8 @@ Duas defesas diferentes, porque os ataques são diferentes:
 2. **Trava por e-mail** segura o ataque distribuído contra *uma* conta, em que
    cada tentativa vem de um IP diferente e nenhum limite por IP dispara.
 
-O estado vive em memória, de propósito: com uma instância só na Railway isso
-basta, e evita arrastar Redis para dentro do projeto. O preço é que, escalando
-para várias instâncias, cada uma passa a contar em separado — o limite efetivo
-vira N vezes o configurado. Está documentado no README; o dia em que houver mais
-de uma instância, o caminho é trocar o miolo destas classes por um armazenamento
-compartilhado, sem mexer nas rotas.
+O estado vive em memória, de propósito: com um processo só rodando na máquina
+isso basta, e evita depender de um armazenamento externo.
 """
 
 from __future__ import annotations
@@ -217,8 +213,8 @@ limite_registro = limite_por_ip(
     "Muitas contas criadas a partir deste endereço. Tente mais tarde.",
 )
 
-# O scraper faz requisição de saída a cada chamada: sem limite, a API vira um
-# serviço de download por conta alheia, e a conta da Railway paga por isso.
+# O scraper faz requisição de saída a cada chamada: sem limite, um clique
+# repetido vira uma enxurrada de requisições para a loja.
 limite_scraping = limite_por_ip(
     config.LIMITE_SCRAPING,
     config.LIMITE_SCRAPING_JANELA,

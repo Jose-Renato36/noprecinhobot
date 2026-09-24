@@ -1,7 +1,5 @@
 // Camada única de acesso à API do NoPrecinhoBot.
-// Em dev o Vite faz proxy de /api para o FastAPI (ver vite.config.js).
-
-const BASE = import.meta.env.VITE_API_URL ?? ''
+// O Vite faz proxy de /api para o FastAPI (ver vite.config.js).
 
 class ApiError extends Error {
   constructor(mensagem, status) {
@@ -35,11 +33,11 @@ async function pedir(
 
   let resposta
   try {
-    resposta = await fetch(`${BASE}${caminho}`, {
+    resposta = await fetch(caminho, {
       method: metodo,
       headers: cabecalhos,
-      // Painel e API são servidos pela mesma origem, então same-origin basta e
-      // é mais restritivo que 'include'.
+      // Pelo proxy do Vite, painel e API ficam na mesma origem, então
+      // same-origin basta e é mais restritivo que 'include'.
       credentials: 'same-origin',
       body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
       ...resto,

@@ -12,39 +12,53 @@ quando o valor atinge o alvo, dispara um alerta.
 
 ## Como rodar
 
-Precisa de **Python 3.12+** e **Node.js 18+**.
+Tudo roda na sua máquina: API em Python, painel em React e um arquivo SQLite como
+banco. Não há serviço externo para configurar.
+
+Precisa de **Python 3.11+** e **Node.js 18+**.
 
 ### 1. Backend (API + scraper + agendador)
 
+Windows:
+
 ```bash
-cd backend && python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt -r requirements-dev.txt && playwright install chromium && uvicorn app.main:app --reload
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
 
+Linux / macOS: igual, trocando a ativação por `source .venv/bin/activate`.
+
 Sobe em <http://127.0.0.1:8000> — documentação interativa em <http://127.0.0.1:8000/docs>.
+Os dados ficam em `backend/noprecinho.db`, criado sozinho no primeiro início.
 
-O `requirements-dev.txt` traz o `pytest` e o Playwright — este último baixa o navegador
-(`playwright install chromium`) usado como último recurso em lojas que montam o preço por
-JavaScript. Se pular esse passo, o scraper funciona igual, só sem essa camada — ele se
-desliga sozinho. Em produção só o `requirements.txt` é instalado.
+Opcional: `playwright install chromium` baixa o navegador (~150 MB) usado como último recurso
+em lojas que montam o preço por JavaScript. Sem ele o scraper funciona igual, só sem essa
+camada — ela se desliga sozinha.
 
-Sem nenhuma configuração ele já funciona: usa **SQLite** local (`backend/noprecinho.db`) e
-registra os alertas no banco. Para PostgreSQL e e-mail, veja [Configuração](#configuração).
+Opcional: `copy .env.example .env` (ou `cp`) para ajustar intervalo de coleta, chave dos
+tokens etc. Veja [Configuração](#configuração).
 
 ### 2. Frontend (painel React)
 
 Em outro terminal:
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend
+npm install
+npm run dev
 ```
 
-Abra <http://localhost:5173>. O Vite faz proxy de `/api` para o backend, então não há
-URL de API para configurar em desenvolvimento.
+Abra <http://localhost:5173>, crie uma conta e pronto. O Vite repassa `/api` para o backend,
+então não há URL de API para configurar.
 
 ### 3. Rodar os testes
 
 ```bash
-cd backend && .venv\Scripts\python -m pytest
+cd backend
+python -m pytest
 ```
 
 ---
@@ -58,15 +72,15 @@ JSON-LD e OpenGraph, cujo preço oscila ±12% num ciclo de 10 minutos. O scraper
 HTTP igual a qualquer outra loja — nada é simulado do lado dele.
 
 1. No painel, abra a aba **Loja de teste** e copie o link de um produto.
-2. Cole na aba **Painel**, clique em **Testar link** (o scraper roda e mostra o que achou) e
-   defina um preço-alvo um pouco abaixo do atual.
-3. Clique em **Coletar tudo agora** algumas vezes: o histórico cresce e o gráfico se forma.
-4. Clique em **💥 Derrubar preços 40%** na aba Loja de teste e colete de novo — o alerta
-   dispara, o card fica verde e o alerta aparece na aba **Alertas**.
+2. Cole na aba **Minha lista**: o scraper busca o produto na hora e sugere um preço-alvo 10%
+   abaixo do atual. Clique em **Adicionar à minha lista**.
+3. Clique em **Verificar agora** algumas vezes: o histórico cresce e o gráfico se forma.
+4. Clique em **Derrubar preços 40%** na aba Loja de teste e verifique de novo — o alerta
+   dispara, o card muda de cor e o aviso aparece na aba **Avisos**.
 
 O produto também é monitorado sozinho: o agendador roda no intervalo definido em
-`SCRAPE_INTERVAL_MINUTES` (o `.env` de desenvolvimento vem com 3 minutos para dar para ver
-acontecendo; a especificação pede 360 = 6 horas).
+`SCRAPE_INTERVAL_MINUTES` (o padrão é 360 = 6 horas, como pede a especificação; o
+`.env.example` vem com 3 minutos para dar para ver acontecendo).
 
 ---
 
@@ -77,26 +91,25 @@ acontecendo; a especificação pede 360 = 6 horas).
 | Frontend | React 18 + Vite + CSS | Cadastro, painel, histórico e alertas |
 | Backend / API | Python + FastAPI | CRUD de produto, coleta, histórico, alertas |
 | Scraper | BeautifulSoup + curl_cffi | Extrai nome, preço e imagem; se adapta ao HTML da loja |
-| Agendador | APScheduler / cron da Railway | Dispara a coleta periodicamente |
-| Banco | PostgreSQL (SQLite em dev) | Produtos, histórico e alertas |
-| Notificação | Resend | E-mail quando o alerta dispara |
+| Agendador | APScheduler | Dispara a coleta periodicamente, dentro do processo da API |
+| Banco | SQLite | Usuários, produtos, histórico e alertas |
+| Login | bcrypt + JWT em cookie httpOnly | Cada conta vê só a própria lista |
 
 ```
-React  ──HTTP──▶  FastAPI  ──▶  scraper (BeautifulSoup)  ──▶  página da loja
-                     │                    │
-                     │                    ▼
-                     │            histórico + comparação com o alvo
-                     │                    │
-                     ▼                    ▼
-                PostgreSQL           alerta ──▶ Resend (e-mail)
-                     ▲
-        APScheduler / cron ─── dispara a coleta a cada N minutos
+React (Vite) ──/api──▶  FastAPI  ──▶  scraper (BeautifulSoup)  ──▶  página da loja
+                           │                    │
+                           │                    ▼
+                           │            histórico + comparação com o alvo
+                           ▼                    │
+                         SQLite  ◀──────────────┘  alerta (aparece no painel)
+                           ▲
+            APScheduler ───┘  dispara a coleta a cada N minutos
 ```
 
 ### Estrutura de pastas
 
 ```
-noprecinhhobot/
+noprecinhobot/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py        API FastAPI (rotas)
@@ -105,12 +118,13 @@ noprecinhhobot/
 │   │   ├── scraper.py     Extração adaptativa de nome/preço/imagem
 │   │   ├── monitor.py     Coleta + regras de alerta
 │   │   ├── scheduler.py   Agendador interno (APScheduler)
-│   │   ├── run_coleta.py  Entrypoint para o cron da Railway
-│   │   ├── notifier.py    Envio de e-mail via Resend
+│   │   ├── navegador.py   Fallback de navegador (Playwright), opcional
+│   │   ├── auth.py        Hash de senha, token e sessão
+│   │   ├── limitador.py   Limite de requisições e trava de login
 │   │   ├── demo_store.py  Loja fictícia TechPrecinho
 │   │   ├── database.py    Engine e sessão do SQLAlchemy
 │   │   └── config.py      Configuração por variáveis de ambiente
-│   └── tests/             Testes do scraper e das regras de alerta
+│   └── tests/             Scraper, regras de alerta, login, limites e SSRF
 └── frontend/
     └── src/
         ├── App.jsx        Estado e navegação por abas
@@ -125,10 +139,9 @@ noprecinhhobot/
   (`aguardando`, `alvo_atingido`, `pausado`, `erro`). Guarda também a memória do scraper:
   qual seletor, qual fonte e qual perfil de navegador funcionaram na última coleta.
 - **HistoricoPreco** — um registro por coleta: produto, preço, data/hora.
-- **Alerta** — gerado quando o preço atinge o alvo: preço de disparo, alvo, mensagem, se o
-  e-mail saiu.
-- **Usuario** — entidade opcional na especificação. Existe no modelo e é o destinatário do
-  e-mail, mas **não há tela de login**: tudo roda sob um "Usuário Demo" criado no primeiro boot.
+- **Alerta** — gerado quando o preço atinge o alvo: preço de disparo, alvo, mensagem, se já
+  foi lido.
+- **Usuario** — dono dos produtos. Cada conta vê e mexe só na própria lista.
 
 ### O scraper adaptativo
 
@@ -274,14 +287,13 @@ Para ver funcionando, a loja-demo tem uma versão que monta o preço por JS em
 - duas falhas seguidas ao abrir o navegador desligam o fallback no processo inteiro — é o
   caso de quem instalou o pacote mas esqueceu o `playwright install chromium`.
 
-**Custo:** ~400 MB de Chromium. Na Railway, exige trocar o Nixpacks por um Dockerfile com as
-libs de sistema; se preferir não usar lá, `NAVEGADOR_FALLBACK=false` e tudo segue por HTTP.
-**Não resolve antibot** — Shopee, Magalu e Mercado Livre foram testados e continuam bloqueando.
+**Custo:** ~150 MB de Chromium baixados uma vez. Se preferir não usar,
+`NAVEGADOR_FALLBACK=false` e tudo segue por HTTP. **Não resolve antibot** — Shopee, Magalu e Mercado Livre foram testados e continuam bloqueando.
 
 ### Regra de alerta
 
 O alerta nasce **na transição** para "alvo atingido", não a cada coleta — senão uma promoção
-que dura três dias geraria um e-mail a cada 6 horas. Se o preço volta a subir, o produto
+que dura três dias geraria um aviso novo a cada 6 horas. Se o preço volta a subir, o produto
 retorna para `aguardando` e uma nova queda dispara um novo alerta.
 
 ---
@@ -292,7 +304,6 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 
 | Variável | Padrão | Para que serve |
 | --- | --- | --- |
-| `DATABASE_URL` | SQLite local | Conexão do banco. Aceita `postgres://` (a Railway preenche sozinha) |
 | `SCHEDULER_ENABLED` | `true` | Liga o agendador interno |
 | `SCRAPE_INTERVAL_MINUTES` | `360` | Intervalo entre coletas (6 h) |
 | `COLETA_AO_INICIAR` | `false` | Dispara uma coleta ao subir a API |
@@ -302,105 +313,19 @@ Copie `backend/.env.example` para `backend/.env` e ajuste. Tudo tem padrão; nad
 | `VARIACAO_MAXIMA_FATOR` | `4.0` | Acima disso a coleta é descartada como erro de extração |
 | `NAVEGADOR_FALLBACK` | `auto` | `auto` usa o Playwright se instalado; `true` exige; `false` desliga |
 | `NAVEGADOR_ESPERA_PRECO_MS` | `8000` | Quanto o navegador espera um preço aparecer na tela |
-| `EMAIL_ENABLED` | `true` | `false` desliga o envio por completo, mesmo com chave |
-| `RESEND_API_KEY` | — | Chave da Resend. **Sem ela o alerta é só registrado no banco** |
-| `RESEND_FROM` | `onboarding@resend.dev` | Remetente |
-| `EMAIL_DESTINO` | — | Destinatário (se o usuário não tiver e-mail) |
-| `SECRET_KEY` | aleatória por boot | Assina os tokens. **Defina em produção**, senão todo reinício desloga todo mundo |
+| `SECRET_KEY` | aleatória por início | Assina os tokens. Sem ela, todo reinício da API (inclusive o `--reload`) desloga todo mundo |
 | `JWT_EXPIRA_MINUTOS` | `720` | Validade do token (12 horas) |
 | `COOKIE_PERSISTENTE` | `false` | `false` = sessão morre ao fechar o navegador |
-| `COOKIE_SEGURO` | segue a `BASE_URL` | Exige HTTPS; ligado sozinho quando a `BASE_URL` é `https` |
-| `COOKIE_SAMESITE` | `strict` | Proteção contra CSRF |
 | `REGISTRO_ABERTO` | `true` | Com `false`, ninguém cria conta nova; as existentes seguem entrando |
 | `RATE_LIMIT_ENABLED` | `true` | Liga as proteções contra abuso |
-| `CONFIAR_PROXIES` | `1` | Proxies confiáveis à frente da API. **Use `0` sem proxy** |
 | `LIMITE_LOGIN` · `_JANELA` | `10` · `300` | Tentativas de login por IP a cada 5 min |
 | `LIMITE_REGISTRO` · `_JANELA` | `5` · `3600` | Contas criadas por IP por hora |
 | `LIMITE_SCRAPING` · `_JANELA` | `20` · `60` | Chamadas que disparam o scraper, por IP por minuto |
 | `LOGIN_MAX_FALHAS` | `5` | Senhas erradas antes de trancar a conta |
 | `LOGIN_BLOQUEIO_SEGUNDOS` | `60` | Duração do 1º bloqueio (dobra a cada rodada) |
 | `LOGIN_BLOQUEIO_TETO_SEGUNDOS` | `900` | Teto do bloqueio (15 min) |
-| `BASE_URL` | `http://127.0.0.1:8000` | URL pública da API (usada nos links da loja-demo) |
-| `PERMITIR_REDE_INTERNA` | `false` | Deixa o scraper alcançar endereços privados. **Mantenha `false`** |
-| `CORS_PERMITIR_LOCALHOST` | segue a `BASE_URL` | Libera origem localhost; desliga sozinho em `https` |
-| `CORS_ORIGINS` | `localhost:5173` | Origens liberadas para o frontend |
-| `DEMO_STORE_ENABLED` | `true` | Liga a loja fictícia |
-
-### E-mail (Resend)
-
-Sem `RESEND_API_KEY` o sistema **não quebra**: o alerta é gravado, aparece no painel e o
-card do alerta indica "e-mail não configurado". Para ativar de verdade, crie uma conta na
-[Resend](https://resend.com), gere uma API key e preencha `RESEND_API_KEY` + `EMAIL_DESTINO`.
-Na conta gratuita, o remetente `onboarding@resend.dev` só entrega para o e-mail cadastrado
-na própria Resend.
-
----
-
-## Deploy na Railway
-
-Há dois caminhos. O primeiro é mais simples e é o recomendado.
-
-### Opção A — um serviço só (Dockerfile)
-
-Crie **um** serviço apontando para este repositório e **não configure Root Directory**. A
-Railway encontra o `Dockerfile` na raiz e usa ele, sem depender de detecção de linguagem.
-Ele compila o painel React e o entrega junto com a API, servidos pela mesma origem.
-
-Adicione o PostgreSQL (`+ New` → `Database` → `PostgreSQL`) e configure:
-
-```
-DATABASE_URL        → referência ao serviço Postgres
-BASE_URL            → https://<dominio-do-servico>
-DEMO_STORE_ENABLED  → false
-NAVEGADOR_FALLBACK  → false
-```
-
-Não é preciso `CORS_ORIGINS` nem `VITE_API_URL`: com uma origem só, o painel chama `/api`
-por caminho relativo e o navegador nem passa pelo CORS.
-
-### Opção B — três serviços
-
-Mais fiel à separação de responsabilidades, e é o desenho descrito na especificação.
-
-> ⚠️ **O passo que faz o build falhar se for esquecido:** em cada serviço, defina o
-> **Root Directory** em *Settings → Source*. A raiz do repositório só contém `backend/` e
-> `frontend/`, então sem esse ajuste o builder não identifica linguagem nenhuma e aborta
-> com *"could not determine how to build the app"*. Essa configuração vive no painel da
-> Railway — nenhum arquivo do repositório substitui ela.
-
-**1. PostgreSQL** — adicione pelo painel (`+ New` → `Database` → `PostgreSQL`). A Railway
-cria a variável `DATABASE_URL` automaticamente.
-
-**2. API** — Root Directory `backend`.
-- Build e start já vêm fixados em `backend/railway.json`; a versão do Python, em
-  `backend/.python-version`.
-- Variáveis: referencie o `DATABASE_URL` do Postgres, e defina `BASE_URL` com o domínio
-  público do serviço, `CORS_ORIGINS` com a URL do frontend, `DEMO_STORE_ENABLED=false` e,
-  opcionalmente, `RESEND_API_KEY` e `EMAIL_DESTINO`.
-- As tabelas são criadas no primeiro boot; não há migração para rodar.
-
-**3. Frontend** — Root Directory `frontend`.
-- Build e start já vêm fixados em `frontend/railway.json`.
-- Variável: `VITE_API_URL` = URL pública da API.
-- O `vite preview` recusa requisições de hosts desconhecidos desde o Vite 5.4.12. O
-  `vite.config.js` libera automaticamente o `RAILWAY_PUBLIC_DOMAIN`, que a Railway injeta
-  sozinha — se você usar domínio próprio, adicione-o em `preview.allowedHosts`.
-
-> **Por que `DEMO_STORE_ENABLED=false` em produção:** a loja-demo expõe
-> `POST /api/demo/reiniciar`, que apaga produtos, histórico e alertas sem pedir
-> autenticação. Em ambiente público isso é um botão de autodestruição aberto.
-
-**Agendador — escolha uma das duas formas:**
-
-- **Worker interno (padrão):** deixe `SCHEDULER_ENABLED=true` na API. O APScheduler roda
-  dentro do processo e dispara a coleta a cada `SCRAPE_INTERVAL_MINUTES`. Mais simples, mas
-  a coleta para se a API dormir.
-- **Cron job da Railway:** defina `SCHEDULER_ENABLED=false` na API e crie um quarto serviço
-  com Root Directory `backend`, comando `python -m app.run_coleta` e um cron schedule
-  (`0 */6 * * *` para cada 6 horas). Mais robusto e é o que a especificação descreve.
-
-> **Alternativa tudo-em-um:** se `frontend/dist` existir, a API serve o painel na raiz
-> (`/`). Basta rodar `npm run build` antes do deploy e usar um único serviço.
+| `PERMITIR_REDE_INTERNA` | `false` | Deixa o scraper alcançar endereços da rede local |
+| `BASE_URL` | `http://127.0.0.1:8000` | Endereço da API (usado nos links da loja-demo) |
 
 ---
 
@@ -424,7 +349,7 @@ no corpo da resposta de login justamente para isso.
 | `POST` | `/api/produtos/{id}/pausar` · `/retomar` | Pausa ou retoma o monitoramento |
 | `POST` | `/api/produtos/{id}/coletar` | Coleta manual de um produto |
 | `GET` | `/api/produtos/{id}/historico` | Pontos do gráfico + mínimo/médio/máximo |
-| `POST` | `/api/coletas/executar` | Roda a coleta em todos (o que o cron faz) |
+| `POST` | `/api/coletas/executar` | Roda a coleta em todos (o que o agendador faz) |
 | `POST` | `/api/previa` | Testa uma URL sem cadastrar (mostra fonte e confiança) |
 | `GET` | `/api/alertas` | Lista de alertas |
 | `GET` | `/api/resumo` | Números do painel + estado do agendador |
@@ -438,61 +363,43 @@ Documentação completa e testável em `/docs`.
 
 ## Decisões de projeto
 
-- **SQLite em dev, PostgreSQL em produção.** O mesmo código roda nos dois: o
-  `DATABASE_URL` decide. Assim ninguém precisa instalar Postgres para desenvolver. As
-  foreign keys são ligadas explicitamente no SQLite (`PRAGMA foreign_keys=ON`), senão ele
+- **SQLite, um arquivo só.** Ninguém precisa instalar servidor de banco para rodar. As
+  foreign keys são ligadas explicitamente (`PRAGMA foreign_keys=ON`), senão o SQLite
   ignora `ON DELETE CASCADE` e deixaria histórico órfão.
 - **Loja fictícia própria.** Depender de loja real numa apresentação é apostar contra o
   antibot. A TechPrecinho serve HTML real para o scraper real.
 - **Gráfico em SVG escrito à mão.** Nenhuma biblioteca de charts — menos peso e o código
   fica legível para quem for avaliar.
-- **E-mail nunca derruba a coleta.** Falha de rede ou chave ausente só geram log; o alerta
-  já está salvo no banco.
 - **`brand` não é a loja.** No schema.org, `brand` é o fabricante — um ventilador da Britânia
   vendido na KaBuM tem `brand: Britânia`. Quem identifica o vendedor é `offers.seller`, com
   `og:site_name` e o domínio como planos B.
-- **Migração aditiva sem Alembic.** O `create_all` cria tabelas mas nunca altera as
-  existentes. Em vez de arrastar o Alembic inteiro, há uma rotina de ~20 linhas que só
-  adiciona colunas anuláveis novas — resolve o caso real sem tocar em dado existente.
+- **Migração mínima sem Alembic.** O `create_all` cria tabelas mas nunca altera as
+  existentes. Em vez de arrastar o Alembic inteiro, uma rotina curta adiciona colunas
+  anuláveis novas e remove as que saíram do modelo (hoje só `alertas.email_enviado`, do
+  tempo em que havia e-mail) — um banco criado por versão anterior continua funcionando.
 - **Autorização por dono, não só autenticação.** O login responde "quem é você"; o risco
   real está em "a que você tem direito". Toda rota que recebe um id confere o dono, e
   produto de outra pessoa responde **404, não 403** — dizer "existe, mas não é seu"
   permitiria mapear a base alheia testando ids em sequência.
-- **Unicidade de URL por usuário.** Antes do login era global, o que faria o segundo
-  usuário a cadastrar um link já monitorado levar 409. Trocar isso num banco que já existe
-  exige `ALTER TABLE`, então há uma migração dedicada (só PostgreSQL; em SQLite de
-  desenvolvimento, apagar o `.db` resolve).
 - **Sessão em cookie `httpOnly`, não em `localStorage`.** Os dois armazenamentos do
   navegador (`localStorage` e `sessionStorage`) são legíveis por JavaScript: um XSS copia
   o token e o reusa de outro lugar. O cookie `httpOnly` a página não consegue nem ler. O
-  custo normal dessa escolha é ter que tratar CSRF, mas painel e API são servidos pela
-  mesma origem, então `SameSite=Strict` resolve. Sem data de expiração, o cookie morre ao
-  fechar o navegador; o JWT de 12 h é a rede de segurança para quem deixa o navegador
-  aberto por dias.
+  custo normal dessa escolha é ter que tratar CSRF, mas pelo proxy do Vite painel e API
+  ficam na mesma origem, então `SameSite=Strict` resolve. Sem data de expiração, o cookie
+  morre ao fechar o navegador; o JWT de 12 h é a rede de segurança para quem deixa o
+  navegador aberto por dias.
 - **A URL é do usuário, mas a requisição é do servidor.** É a definição de SSRF: um
-  endereço como `169.254.169.254` (metadados da nuvem) ou `10.0.0.5:5432` alcança a rede
-  privada da hospedagem, onde o navegador de quem pediu jamais chegaria — e o conteúdo
-  volta na resposta da prévia. A checagem é feita sobre o **IP resolvido**, não sobre o
-  texto do domínio, porque qualquer um aponta um domínio público para `127.0.0.1`. A
-  loja-demo é a exceção liberada, por ser a própria `BASE_URL`.
-- **Uma rodada por vez, mesmo com vários processos.** O agendador vive dentro do processo
-  web; subir para 2 workers faria a coleta acontecer em duplicata — o dobro de requisições
-  às lojas e pontos repetidos no histórico, sem levantar erro nenhum. Uma trava consultiva
-  do PostgreSQL resolve sem infraestrutura nova: quem pega, coleta; quem não pega, pula.
+  endereço como `192.168.0.1` (o roteador) ou `10.0.0.5:5432` alcança a rede local da
+  máquina que roda a API — e o conteúdo volta na resposta da prévia. A checagem é feita
+  sobre o **IP resolvido**, não sobre o texto do domínio, porque qualquer um aponta um
+  domínio público para `127.0.0.1`. A loja-demo é a exceção liberada, por ser a própria
+  `BASE_URL`.
 - **Duas defesas contra abuso, não uma.** O limite por IP segura quem martela a API; a
   trava por conta segura o ataque distribuído contra *um* e-mail, em que cada tentativa
   vem de um IP diferente e nenhum limite por IP chega a disparar. Uma não substitui a
   outra.
-- **`CONFIAR_PROXIES` é explícito de propósito.** Atrás de um proxy, todas as requisições
-  chegam com o IP dele: limitar por `request.client.host` colocaria todos os usuários no
-  mesmo balde, e um atacante derrubaria o acesso de todo mundo junto. Já confiar no
-  `X-Forwarded-For` *sem* proxy na frente é pior que não limitar — qualquer um forja o
-  cabeçalho e escapa trocando de "IP" a cada requisição. Não existe padrão seguro para os
-  dois casos, então a topologia é declarada.
-- **Estado do limitador em memória.** Com uma instância, basta, e evita arrastar Redis
-  para o projeto. Escalando para várias, cada uma conta em separado e o limite efetivo
-  vira N vezes o configurado — o caminho então é trocar o miolo de `limitador.py` por um
-  armazenamento compartilhado, sem tocar nas rotas.
+- **Estado do limitador em memória.** A API roda num processo só, então um dicionário
+  basta — sem armazenamento externo para instalar.
 
 ---
 
@@ -512,6 +419,10 @@ vez, legalmente e sem raspagem.
 
 **Fila com workers.** Hoje a rodada é um laço sequencial com pausa entre produtos. Passando
 de algumas dezenas de itens, o certo é uma fila com rate limit por domínio.
+
+**Aviso fora do painel.** O alerta hoje aparece no painel. Um canal que chegue sem o painel
+aberto (e-mail, Telegram, notificação do sistema) é o passo natural — uma versão antiga
+enviava e-mail pela Resend, e está no histórico do git.
 
 **Sobre legalidade.** Raspar preço público é geralmente tolerado, mas os Termos de Uso da
 maioria das lojas proíbem explicitamente. Para trabalho acadêmico, sem problema. Virando

@@ -328,7 +328,6 @@ export default function App() {
         {aba === 'alertas' && (
           <PainelAlertas
             alertas={alertas}
-            emailAtivo={resumo?.email_ativo ?? false}
             aoMarcarLido={async (id) => {
               await api.marcarAlertaLido(id)
               carregar()
@@ -350,7 +349,7 @@ export default function App() {
       </main>
 
       <footer className="rodape">
-        NoPrecinhoBot · React + FastAPI + BeautifulSoup + PostgreSQL · José Renato, João Pedro,
+        NoPrecinhoBot · React + FastAPI + BeautifulSoup + SQLite · José Renato, João Pedro,
         Tiago Ferrari, Jean Lucas e Pedro Henrique
       </footer>
 

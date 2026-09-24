@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,7 +11,6 @@ from decimal import Decimal
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
@@ -35,7 +33,7 @@ from .limitador import (
 )
 from .database import SessionLocal, criar_tabelas, get_db
 from .models import Alerta, DemoProduto, HistoricoPreco, Produto, StatusProduto, Usuario
-from .monitor import coletar_produto, coletar_todos
+from .monitor import coletar_produto, coletar_todos, formatar_brl
 from .scraper import ScraperError, raspar_produto
 
 logging.basicConfig(
@@ -44,60 +42,16 @@ logging.basicConfig(
 logger = logging.getLogger("noprecinhobot")
 
 
-def _usando_sqlite() -> bool:
-    return not config.DATABASE_URL.startswith("postgresql")
-
-
-def _parece_producao() -> bool:
-    """Heurística de 'isto está publicado na internet'.
-
-    Um domínio https é o sinal mais confiável; as plataformas de hospedagem
-    também injetam variáveis próprias no ambiente.
-    """
-    return config.BASE_URL.lower().startswith("https") or any(
-        os.getenv(v) for v in ("RAILWAY_ENVIRONMENT", "RENDER", "FLY_APP_NAME", "DYNO")
-    )
-
-
-def _conferir_persistencia() -> None:
-    """Denuncia o SQLite em produção, alto e no boot.
-
-    Sem DATABASE_URL o sistema cai em SQLite dentro do container — e funciona
-    perfeitamente, até o container ser recriado. Aí some tudo: contas, produtos,
-    histórico. O silêncio desse caminho é o problema: a falha não aparece quando
-    é causada, e sim dias depois, parecendo outra coisa (`os produtos sumiram`,
-    `a coleta quebrou`).
-    """
-    if not (_usando_sqlite() and _parece_producao()):
-        return
-
-    logger.error(
-        "\n"
-        "  ============================================================\n"
-        "   ATENÇÃO: os dados NÃO estão sendo salvos de forma permanente.\n"
-        "\n"
-        "   A aplicação está publicada, mas sem PostgreSQL: ela caiu no\n"
-        "   SQLite de dentro do container. Tudo será apagado no próximo\n"
-        "   deploy ou reinício — contas, produtos e histórico de preços.\n"
-        "\n"
-        "   Correção: adicione um banco PostgreSQL ao projeto e referencie\n"
-        "   a variável DATABASE_URL no serviço da aplicação.\n"
-        "  ============================================================"
-    )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     criar_tabelas()
-    _conferir_persistencia()
-    if config.DEMO_STORE_ENABLED:
-        db = SessionLocal()
-        try:
-            novos = demo_store.semear_catalogo(db)
-            if novos:
-                logger.info("Loja-demo populada com %d produto(s).", novos)
-        finally:
-            db.close()
+    db = SessionLocal()
+    try:
+        novos = demo_store.semear_catalogo(db)
+        if novos:
+            logger.info("Loja-demo populada com %d produto(s).", novos)
+    finally:
+        db.close()
 
     scheduler.iniciar_agendador()
     yield
@@ -117,9 +71,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
-    # A regra ampla de localhost existe para o Vite em desenvolvimento, onde a
-    # porta varia. Em produção ela some: combinada com allow_credentials, deixaria
-    # qualquer página servida de um localhost fazer requisição autenticada à API.
+    # Em uso normal o Vite repassa /api pelo proxy e o navegador nem passa pelo
+    # CORS. A regra de localhost cobre quem chama a API direto de outra porta.
     allow_origin_regex=(
         r"http://(localhost|127\.0\.0\.1):\d+" if config.CORS_PERMITIR_LOCALHOST else None
     ),
@@ -216,12 +169,6 @@ def _buscar_produto(db: Session, produto_id: int, usuario: Usuario) -> Produto:
     return produto
 
 
-def _email_ativo() -> bool:
-    """Só é 'ativo' quando ligado **e** com chave: as duas coisas precisam valer
-    para um e-mail realmente sair."""
-    return config.EMAIL_ENABLED and bool(config.RESEND_API_KEY)
-
-
 # --------------------------------------------------------------------------- #
 # Saúde e raiz
 # --------------------------------------------------------------------------- #
@@ -231,11 +178,6 @@ def health() -> dict:
         "status": "ok",
         "agendador_ativo": scheduler.esta_ativo(),
         "intervalo_minutos": config.SCRAPE_INTERVAL_MINUTES,
-        "email_ativo": _email_ativo(),
-        "banco": "sqlite" if _usando_sqlite() else "postgresql",
-        # Publicado sobre SQLite = os dados somem no próximo deploy. Fica
-        # explícito aqui para a checagem ser uma olhada, não uma investigação.
-        "dados_persistentes": not (_usando_sqlite() and _parece_producao()),
     }
 
 
@@ -397,16 +339,6 @@ def cadastrar_produto(
 
     # Já nasce abaixo do alvo? Registra o alerta na hora.
     if preco <= dados.preco_alvo:
-        from .notifier import enviar_alerta_email, formatar_brl
-
-        email_enviado = enviar_alerta_email(
-            destinatario=usuario.email,
-            nome_produto=produto.nome,
-            url_produto=produto.url,
-            preco_atual=preco,
-            preco_alvo=dados.preco_alvo,
-            imagem_url=produto.imagem_url,
-        )
         db.add(
             Alerta(
                 produto_id=produto.id,
@@ -416,7 +348,6 @@ def cadastrar_produto(
                     f"{produto.nome} já está por {formatar_brl(preco)} — abaixo do seu "
                     f"alvo de {formatar_brl(dados.preco_alvo)}."
                 ),
-                email_enviado=email_enviado,
             )
         )
 
@@ -582,7 +513,6 @@ def coletar_agora(
         sucesso=resultado.sucesso,
         preco=float(resultado.preco) if resultado.preco is not None else None,
         alerta_gerado=resultado.alerta_gerado,
-        email_enviado=resultado.email_enviado,
         erro=resultado.erro,
     )
 
@@ -823,83 +753,72 @@ def resumo(db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atu
         proxima_coleta_em=scheduler.proxima_execucao(),
         intervalo_minutos=config.SCRAPE_INTERVAL_MINUTES,
         agendador_ativo=scheduler.esta_ativo(),
-        email_ativo=_email_ativo(),
     )
-
-
-# As rotas /api/usuarios foram removidas: a listagem devolvia o nome e o e-mail
-# de todo mundo para qualquer visitante, e a criação virou /api/auth/registrar,
-# que é a única forma de nascer uma conta (lá a senha é obrigatória).
 
 
 # --------------------------------------------------------------------------- #
 # Loja de demonstração
 # --------------------------------------------------------------------------- #
-if config.DEMO_STORE_ENABLED:
-    demo_store.registrar_rotas(app, get_db)
-
-    @app.get("/api/demo/produtos", tags=["loja-demo"])
-    def listar_demo(db: Session = Depends(get_db)):
-        produtos = list(db.scalars(select(DemoProduto).order_by(DemoProduto.id)))
-        return [
-            {
-                "slug": p.slug,
-                "nome": p.nome,
-                "url": f"{config.BASE_URL}/loja-demo/produto/{p.slug}",
-                "imagem_url": f"{config.BASE_URL}/loja-demo/img/{p.slug}.svg",
-                "preco_atual": float(demo_store.preco_atual(p)),
-                "preco_base": float(p.preco_base),
-                "em_promocao": float(p.fator_promocao or 1) < 1,
-            }
-            for p in produtos
-        ]
-
-    @app.post("/api/demo/promocao", tags=["loja-demo"])
-    def aplicar_promocao(
-        desconto: float = Query(default=0.35, ge=0.05, le=0.9),
-        db: Session = Depends(get_db),
-        usuario: Usuario = Depends(usuario_atual),
-    ):
-        """Derruba os preços da loja-demo para provocar alertas na apresentação."""
-        db.execute(update(DemoProduto).values(fator_promocao=round(1 - desconto, 3)))
-        db.commit()
-        return {"mensagem": f"Promoção de {int(desconto * 100)}% aplicada na loja-demo."}
-
-    @app.post("/api/demo/normalizar", tags=["loja-demo"])
-    def normalizar_precos(
-        db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
-    ):
-        db.execute(update(DemoProduto).values(fator_promocao=1.0))
-        db.commit()
-        return {"mensagem": "Preços da loja-demo voltaram ao normal."}
-
-    @app.post("/api/demo/reiniciar", tags=["loja-demo"])
-    def reiniciar_dados(
-        db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
-    ):
-        """Zera o monitoramento **da própria conta**.
-
-        Antes isto era um `DELETE` sem cláusula: um POST sem autenticação apagava
-        os produtos, o histórico e os alertas de todos os usuários. Agora o
-        estrago que alguém consegue fazer se limita à própria conta.
-        """
-        meus = select(Produto.id).where(Produto.usuario_id == usuario.id).scalar_subquery()
-        db.execute(delete(Alerta).where(Alerta.produto_id.in_(meus)))
-        db.execute(delete(HistoricoPreco).where(HistoricoPreco.produto_id.in_(meus)))
-        db.execute(delete(Produto).where(Produto.usuario_id == usuario.id))
-        db.execute(update(DemoProduto).values(fator_promocao=1.0))
-        db.commit()
-        return {"mensagem": "Seu monitoramento foi zerado."}
+demo_store.registrar_rotas(app, get_db)
 
 
-# --------------------------------------------------------------------------- #
-# Frontend compilado (deploy tudo-em-um na Railway)
-# --------------------------------------------------------------------------- #
-if config.FRONTEND_DIST.is_dir():
-    app.mount("/", StaticFiles(directory=str(config.FRONTEND_DIST), html=True), name="frontend")
-    logger.info("Servindo frontend compilado de %s", config.FRONTEND_DIST)
-else:
+@app.get("/api/demo/produtos", tags=["loja-demo"])
+def listar_demo(db: Session = Depends(get_db)):
+    produtos = list(db.scalars(select(DemoProduto).order_by(DemoProduto.id)))
+    return [
+        {
+            "slug": p.slug,
+            "nome": p.nome,
+            "url": f"{config.BASE_URL}/loja-demo/produto/{p.slug}",
+            "imagem_url": f"{config.BASE_URL}/loja-demo/img/{p.slug}.svg",
+            "preco_atual": float(demo_store.preco_atual(p)),
+            "preco_base": float(p.preco_base),
+            "em_promocao": float(p.fator_promocao or 1) < 1,
+        }
+        for p in produtos
+    ]
 
-    @app.get("/", include_in_schema=False)
-    def raiz():
-        return RedirectResponse("/docs")
+
+@app.post("/api/demo/promocao", tags=["loja-demo"])
+def aplicar_promocao(
+    desconto: float = Query(default=0.35, ge=0.05, le=0.9),
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    """Derruba os preços da loja-demo para provocar alertas na apresentação."""
+    db.execute(update(DemoProduto).values(fator_promocao=round(1 - desconto, 3)))
+    db.commit()
+    return {"mensagem": f"Promoção de {int(desconto * 100)}% aplicada na loja-demo."}
+
+
+@app.post("/api/demo/normalizar", tags=["loja-demo"])
+def normalizar_precos(
+    db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
+):
+    db.execute(update(DemoProduto).values(fator_promocao=1.0))
+    db.commit()
+    return {"mensagem": "Preços da loja-demo voltaram ao normal."}
+
+
+@app.post("/api/demo/reiniciar", tags=["loja-demo"])
+def reiniciar_dados(
+    db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_atual)
+):
+    """Zera o monitoramento **da própria conta**.
+
+    Antes isto era um `DELETE` sem cláusula: um POST sem autenticação apagava
+    os produtos, o histórico e os alertas de todos os usuários. Agora o
+    estrago que alguém consegue fazer se limita à própria conta.
+    """
+    meus = select(Produto.id).where(Produto.usuario_id == usuario.id).scalar_subquery()
+    db.execute(delete(Alerta).where(Alerta.produto_id.in_(meus)))
+    db.execute(delete(HistoricoPreco).where(HistoricoPreco.produto_id.in_(meus)))
+    db.execute(delete(Produto).where(Produto.usuario_id == usuario.id))
+    db.execute(update(DemoProduto).values(fator_promocao=1.0))
+    db.commit()
+    return {"mensagem": "Seu monitoramento foi zerado."}
+
+
+@app.get("/", include_in_schema=False)
+def raiz():
+    return RedirectResponse("/docs")

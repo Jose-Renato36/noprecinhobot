@@ -18,26 +18,23 @@ logger = logging.getLogger(__name__)
 # Os valores continuam corretos (2 casas), então silenciamos só esse aviso.
 warnings.filterwarnings("ignore", r".*does \*not\* support Decimal objects natively.*", SAWarning)
 
-_e_sqlite = config.DATABASE_URL.startswith("sqlite")
-
+# check_same_thread=False: a API e o agendador usam o banco a partir de threads
+# diferentes; cada uma abre a própria sessão, então o compartilhamento é seguro.
 engine = create_engine(
     config.DATABASE_URL,
     echo=False,
     future=True,
-    pool_pre_ping=not _e_sqlite,
-    connect_args={"check_same_thread": False} if _e_sqlite else {},
+    connect_args={"check_same_thread": False},
 )
 
-if _e_sqlite:
 
-    @event.listens_for(engine, "connect")
-    def _ativar_foreign_keys(dbapi_connection, _registro) -> None:
-        """O SQLite ignora ON DELETE CASCADE a menos que as FKs sejam ligadas
-        em cada conexão. Sem isto, apagar um produto deixaria histórico e
-        alertas órfãos (no PostgreSQL isso já é o comportamento padrão)."""
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+@event.listens_for(engine, "connect")
+def _ativar_foreign_keys(dbapi_connection, _registro) -> None:
+    """O SQLite ignora ON DELETE CASCADE a menos que as FKs sejam ligadas em
+    cada conexão. Sem isto, apagar um produto deixaria histórico e alertas órfãos."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
@@ -61,48 +58,30 @@ def criar_tabelas() -> None:
 
     Base.metadata.create_all(bind=engine)
     _adicionar_colunas_novas()
-    _migrar_unicidade_de_url()
+    _remover_colunas_antigas()
 
 
-def _migrar_unicidade_de_url() -> None:
-    """Troca a unicidade global de `url` por unicidade de (usuario_id, url).
+# Colunas que existiram em versões anteriores e saíram do modelo. Uma coluna
+# NOT NULL que o modelo não preenche mais faria todo INSERT falhar, então ela
+# precisa sair do banco também.
+COLUNAS_REMOVIDAS = {"alertas": ["email_enviado"]}
 
-    Necessário porque o `create_all` não altera tabelas que já existem: um banco
-    criado antes do login continuaria com `uq_produto_url`, e aí o segundo
-    usuário a cadastrar um link já monitorado levaria 409.
 
-    Só roda no PostgreSQL. O SQLite não sabe remover constraint (exigiria
-    recriar a tabela) e, sendo banco descartável de desenvolvimento, apagar o
-    arquivo .db resolve.
-    """
+def _remover_colunas_antigas() -> None:
     from sqlalchemy import inspect, text
 
-    if _e_sqlite:
-        return
-
     inspetor = inspect(engine)
-    if "produtos" not in set(inspetor.get_table_names()):
-        return
+    tabelas_existentes = set(inspetor.get_table_names())
 
-    existentes = {r["name"] for r in inspetor.get_unique_constraints("produtos")}
-
-    try:
-        with engine.begin() as conexao:
-            if "uq_produto_url" in existentes:
-                conexao.execute(text("ALTER TABLE produtos DROP CONSTRAINT uq_produto_url"))
-                logger.info("Restrição uq_produto_url removida.")
-            if "uq_produto_usuario_url" not in existentes:
-                conexao.execute(
-                    text(
-                        "ALTER TABLE produtos ADD CONSTRAINT uq_produto_usuario_url "
-                        "UNIQUE (usuario_id, url)"
-                    )
-                )
-                logger.info("Restrição uq_produto_usuario_url criada.")
-    except Exception:
-        # Um banco em estado inesperado não pode impedir a API de subir; o pior
-        # caso é a unicidade continuar global, que é o comportamento antigo.
-        logger.exception("Não foi possível migrar a unicidade de URL.")
+    with engine.begin() as conexao:
+        for tabela, colunas in COLUNAS_REMOVIDAS.items():
+            if tabela not in tabelas_existentes:
+                continue
+            atuais = {c["name"] for c in inspetor.get_columns(tabela)}
+            for coluna in colunas:
+                if coluna in atuais:
+                    conexao.execute(text(f'ALTER TABLE "{tabela}" DROP COLUMN "{coluna}"'))
+                    logger.info("Coluna %s.%s removida.", tabela, coluna)
 
 
 def _adicionar_colunas_novas() -> None:

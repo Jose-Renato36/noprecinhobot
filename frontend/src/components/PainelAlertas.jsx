@@ -5,7 +5,6 @@ export default function PainelAlertas({
   aoMarcarLido,
   aoMarcarTodos,
   aoRemover,
-  emailAtivo = false,
 }) {
   const naoLidos = alertas.filter((a) => !a.lido).length
 
@@ -39,9 +38,6 @@ export default function PainelAlertas({
                 <p className="alerta__detalhe">
                   {dataHora(alerta.criado_em)} · disparou em {brl(alerta.preco_disparo)} · alvo{' '}
                   {brl(alerta.preco_alvo)}
-                  {/* Com o envio desligado, "e-mail não enviado" seria ruído
-                      passando por defeito — o alerta no painel é o canal. */}
-                  {emailAtivo && (alerta.email_enviado ? ' · e-mail enviado' : ' · e-mail falhou')}
                 </p>
               </div>
               <div className="alerta__acoes">
